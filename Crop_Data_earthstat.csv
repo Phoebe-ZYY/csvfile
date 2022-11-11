@@ -1,0 +1,177 @@
+CROPNAME,Cropname_FAO,GROUP,GROUP2
+abaca,Manila Fibre (Abaca),Fiber,fibrenes
+agave,Agave Fibres Nes,Fiber,fibrenes
+alfalfa,alfalfa,Forage,Forage
+almond,"Almonds, with shell",Treenuts,nutnes
+aniseetc,"Anise, badian, fennel, corian.",OtherCrops,othercrop
+apple,Apples,Fruit,stonefruitnes
+apricot,Apricots,Fruit,stonefruitnes
+areca,Arecanuts,OtherCrops,othercrop
+artichoke,Artichokes,Vegetables&Melons,vegetablenes
+asparagus,Asparagus,Vegetables&Melons,vegetablenes
+avocado,Avocados,Fruit,tropicalnes
+bambara,Bambara beans,Pulses,pulsenes
+banana,Bananas,Fruit,tropicalnes
+barley,Barley,Cereals,cerealnes
+bean,"Beans, dry",Pulses,pulsenes
+beetfor,beetfor,Forage,
+berrynes,Berries Nes,Fruit,berrynes
+blueberry,Blueberries,Fruit,berrynes
+brazil,"Brazil nuts, with shell",Treenuts,nutnes
+broadbean,"Broad beans, horse beans, dry",Pulses,pulsenes
+buckwheat,Buckwheat,Cereals,cerealnes
+cabbage,Cabbages and other brassicas,Vegetables&Melons,vegetablenes
+cabbagefor,cabbagefor,Forage,
+canaryseed,Canary seed,Cereals,cerealnes
+carob,Carobs,Fruit,berrynes
+carrot,Carrots and turnips,Vegetables&Melons,vegetablenes
+carrotfor,carrotfor,Forage,
+cashew,"Cashew nuts, with shell",Treenuts,nutnes
+cashewapple,Cashewapple,Fruit,-
+cassava,Cassava,Roots&Tubers,rootnes
+castor,Castor oil seed,Oilcrops,oilseednes
+cauliflower,Cauliflowers and broccoli,Vegetables&Melons,vegetablenes
+cerealnes,"Cereals, nes",Cereals,cerealnes
+cherry,Cherries,Fruit,stonefruitnes
+chestnut,Chestnuts,Treenuts,nutnes
+chickpea,Chick peas,Pulses,pulsenes
+chicory,Chicory roots,OtherCrops,othercrop
+chilleetc,"Chillies and peppers, green",Vegetables&Melons,vegetablenes
+cinnamon,Cinnamon (canella),OtherCrops,othercrop
+citrusnes,"Citrus fruit, nes",Fruit,citrusnes
+clove,Cloves,OtherCrops,othercrop
+clover,clover,Forage,
+cocoa,Cocoa beans,OtherCrops,othercrop
+coconut,Coconuts,Oilcrops,oilseednes
+coffee,"Coffee, green",OtherCrops,othercrop
+coir,Coir,Fiber,fibrenes
+cotton,Seed,Fiber,fibrenes
+cowpea,"Cow peas, dry",Pulses,pulsenes
+cranberry,Cranberries,Fruit,berrynes
+cucumberetc,Cucumbers and gherkins,Vegetables&Melons,vegetablenes
+currant,Currants,Fruit,berrynes
+date,Dates,Fruit,tropicalnes
+eggplant,Eggplants (aubergines),Vegetables&Melons,vegetablenes
+fibrenes,Fibre Crops Nes,Fiber,fibrenes
+fig,Figs,Fruit,tropicalnes
+flax,Flax fibre and tow,Fiber,fibrenes
+fonio,Fonio,Cereals,cerealnes
+fornes,fornes,Forage,
+fruitnes,Fresh Nes,Fruit,fruitnes
+garlic,Garlic,Vegetables&Melons,vegetablenes
+garlic,Garlic,Vegetables&Melons,vegetablenes
+ginger,Ginger,OtherCrops,othercrop
+gooseberry,Gooseberries,Fruit,berrynes
+grape,Grapes,Fruit,grape
+grapefruitetc,Grapefruit (inc. pomelos),Fruit,citrusnes
+grassnes,grassnes,Forage,
+greenbean,"Beans, green",Vegetables&Melons,vegetablenes
+greenbroadbean,"Leguminous vegetables, nes",Vegetables&Melons,vegetablenes
+greencorn,"Maize, green",Vegetables&Melons,vegetablenes
+greenonion,"Onions (inc. shallots),green",Vegetables&Melons,vegetablenes
+greenpea,"Peas, green",Vegetables&Melons,vegetablenes
+groundnut,"Groundnuts, with shell",Oilcrops,oilseednes
+gums,Gums Natural,OtherCrops,othercrop
+hazelnut,"Hazelnuts, with shell",Treenuts,nutnes
+hemp,Hemp Tow Waste,Fiber,fibrenes
+hempseed,Hempseed,Oilcrops,oilseednes
+hop,Hops,OtherCrops,othercrop
+jute,Jute,Fiber,fibrenes
+jutelikefiber,Other Bastfibres,Fiber,fibrenes
+kapokfiber,Kapok Fibre,Fiber,fibrenes
+kapokseed,Kapokseed in Shell,Fiber,fibrenes
+karite,Karite Nuts (Sheanuts),Oilcrops,oilseednes
+kiwi,Kiwi fruit,Fruit,berrynes
+kolanut,Kolanuts,OtherCrops,othercrop
+legumenes,legumenes,Forage,
+lemonlime,Lemons and limes,Fruit,citrusnes
+lentil,Lentils,Pulses,pulsenes
+lettuce,Lettuce and chicory,Vegetables&Melons,vegetablenes
+linseed,Linseed,Oilcrops,oilseednes
+lupin,Lupins,Pulses,pulsenes
+maize,Maize,Cereals,cerealnes
+maizefor,maizefor,Forage,
+mango,"Mangoes, mangosteens, guavas",Fruit,tropicalnes
+mate,MatZ,OtherCrops,othercrop
+melonetc,Other melons (inc.cantaloupes),Vegetables&Melons,vegetablenes
+melonseed,Melonseed,Oilcrops,oilseednes
+millet,Millet,Cereals,cerealnes
+mixedgrain,Mixed grain,Cereals,cerealnes
+mixedgrass,mixedgrass,Forage,
+mushroom,Mushrooms and truffles,Vegetables&Melons,vegetablenes
+mustard,Mustard seed,Oilcrops,oilseednes
+nutmeg,"Nutmeg, mace and cardamoms",OtherCrops,othercrop
+nutnes,"Nuts, nes",Treenuts,nutnes
+oats,Oats,Cereals,cerealnes
+oilpalm,Oil palm fruit,Oilcrops,oilseednes
+oilseedfor,oilseedfor,Forage,
+oilseednes,"Oilseeds, Nes",Oilcrops,oilseednes
+okra,Okra,Vegetables&Melons,vegetablenes
+olive,Olives,Oilcrops,oilseednes
+onion,"Onions, dry",Vegetables&Melons,vegetablenes
+orange,Oranges,Fruit,citrusnes
+papaya,Papayas,Fruit,tropicalnes
+pea,"Peas, dry",Pulses,pulsenes
+peachetc,Peaches and nectarines,Fruit,stonefruitnes
+pear,Pears,Fruit,stonefruitnes
+pepper,Pepper (Piper spp.),OtherCrops,othercrop
+peppermint,Peppermint,OtherCrops,othercrop
+persimmon,Persimmons,Fruit,berrynes
+pigeonpea,Pigeon peas,Pulses,pulsenes
+pimento,"Chillies and peppers, dry",OtherCrops,othercrop
+pineapple,Pineapples,Fruit,tropicalnes
+pistachio,Pistachios,Treenuts,nutnes
+plantain,Plantains,Fruit,tropicalnes
+plum,Plums and sloes,Fruit,stonefruitnes
+popcorn,Popcorn,Cereals,cerealnes
+poppy,Poppy seed,Oilcrops,oilseednes
+potato,Potatoes,Roots&Tubers,rootnes
+pulsenes,"Pulses, nes",Pulses,pulsenes
+pumpkinetc,"Pumpkins, squash and gourds",Vegetables&Melons,vegetablenes
+pyrethrum,"Pyrethrum,Dried",OtherCrops,othercrop
+quince,Quinces,Fruit,stonefruitnes
+quinoa,Quinoa,Cereals,cerealnes
+ramie,Ramie,Fiber,fibrenes
+rapeseed,Rapeseed,Oilcrops,oilseednes
+rasberry,Raspberries,Fruit,berrynes
+rice,"Rice, paddy",Cereals,cerealnes
+rootnes,"Roots and Tubers, nes",Roots&Tubers,rootnes
+rubber,Natural,OtherCrops,othercrop
+rye,Rye,Cereals,cerealnes
+ryefor,ryefor,Forage,
+safflower,Safflower seed,Oilcrops,oilseednes
+sesame,Sesame seed,Oilcrops,oilseednes
+sisal,Sisal,Fiber,fibrenes
+sorghum,Sorghum,Cereals,cerealnes
+sorghumfor,sorghumfor,Forage,
+sourcherry,Sour cherries,Fruit,stonefruitnes
+soybean,Soybeans,Oilcrops,soybean
+spicenes,"Spices, nes",OtherCrops,othercrop
+spinach,Spinach,Vegetables&Melons,vegetablenes
+stonefruitnes,"Stone fruit, nes",Fruit,stonefruitnes
+strawberry,Strawberries,Fruit,berrynes
+stringbean,String beans,Vegetables&Melons,vegetablenes
+sugarbeet,Sugar beet,SugarCrops,sugarnes
+sugarcane,Sugar cane,SugarCrops,sugarnes
+sugarnes,"Sugar crops, nes",SugarCrops,sugarnes
+sunflower,Sunflower seed,Oilcrops,oilseednes
+swedefor,swedefor,Forage,
+sweetpotato,Sweet potatoes,Roots&Tubers,rootnes
+tangetc,"Tangerines, mandarins, clem.",Fruit,citrusnes
+taro,Taro (cocoyam),Roots&Tubers,rootnes
+tea,Tea,OtherCrops,othercrop
+tobacco,"Tobacco, unmanufactured",OtherCrops,othercrop
+tomato,Tomatoes,Vegetables&Melons,vegetablenes
+triticale,Triticale,Cereals,cerealnes
+tropicalnes,"Fruit, tropical fresh nes",Fruit,tropicalnes
+tung,Tung Nuts,Oilcrops,oilseednes
+turnipfor,turnipfor,Forage,
+vanilla,Vanilla,OtherCrops,othercrop
+vegetablenes,Vegetables fresh nes,Vegetables&Melons,vegetablenes
+vegfor,vegfor,Forage,
+vetch,Vetches,Pulses,pulsenes
+walnut,"Walnuts, with shell",Treenuts,nutnes
+watermelon,Watermelons,Vegetables&Melons,vegetablenes
+wheat,Wheat,Cereals,cerealnes
+yam,Yams,Roots&Tubers,rootnes
+yautia,Yautia (cocoyam),Roots&Tubers,rootnes
