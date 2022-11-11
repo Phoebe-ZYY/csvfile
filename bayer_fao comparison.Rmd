@@ -1,0 +1,648 @@
+---
+title: "FAO pesticide crosscheck"
+output: html_notebook
+---
+
+
+```{r}
+pesticide_FAO_2018 <- file.choose(new = FALSE)
+pesticide_FAO_2018 <- read_excel(pesticide_FAO_2018, sheet = 1)
+pesticide_FAO_2018 <- pesticide_FAO_2018 %>%
+  filter(Item == "Insecticides" | Item == "Herbicides" | Item == "Fungicides and Bactericides" | Item == "Fungicides – Seed treatments" | Item == "Insecticides – Seed Treatments" | Item == "Plant Growth Regulators" | Item == "Rodenticides" | Item == "Other Pesticides nes"| Item == "Mineral Oils")
+```
+
+```{r}
+pesticide_FAO_2018_total <- pesticide_FAO_2018 %>%
+  filter(Item == "Pesticides (total)" | Item == "Insecticides" | Item == "Herbicides" | Item == "Fungicides and Bactericides" | Item == "Fungicides – Seed treatments" | Item == "Insecticides – Seed Treatments" | Item == "Plant Growth Regulators" | Item == "Rodenticides" | Item == "Other Pesticides nes" | Item == "Mineral Oils")
+```
+
+
+```{r}
+sum(pesticide_FAO_2018$Value)
+```
+
+```{r}
+unique(pesticide_FAO_2018$Area)
+```
+
+```{r}
+`%not_in%` <- purrr::negate(`%in%`)
+pesticide_FAO_2018_notin <- pesticide_FAO_2018 %>%
+  mutate(name_indication_fao = case_when(Item == "Fungicides – Seed treatments" ~ "Seed dressing",
+                                         Item == "Insecticides – Seed Treatments" ~ "Seed dressing",
+                                         TRUE ~ Item)) %>%
+  mutate(name_country = case_when(Area == "China, mainland" ~ "China",
+                                  Area == "China, Macao SAR" ~ "China",
+                                  Area == "China, Hong Kong SAR" ~ "China",
+                                  Area == "Bolivia (Plurinational State of)" ~ "Bolivia",
+                                  Area == "Czechia" ~ "Czech Republic",
+                                  Area == "Republic of Korea" ~ "Korea, Republic of",
+                                  Area == "North Macedonia" ~ "Macedonia, the former Yugoslav Republic of",
+                                  Area == "Niger" ~ "Nigeria",
+                                  Area == "China, Taiwan Province of" ~ "Taiwan, Province of China",
+                                  Area == "United Republic of Tanzania" ~ "Tanzania, United Republic of",
+                                  Area == "United Kingdom of Great Britain and Northern Ireland" ~ "United Kingdom",
+                                  Area == "United States of America" ~ "United States",
+                                  Area == "Venezuela (Bolivarian Republic of)" ~ "Venezuela",
+                                  TRUE ~ Area)) %>%
+  filter(name_country %not_in% input_bayer_2018_indication$name_country)
+unique(pesticide_FAO_2018_notin$name_country)
+```
+
+```{r}
+pesticide_FAO_2018 <- pesticide_FAO_2018 %>%
+  mutate(name_indication_fao = case_when(Item == "Fungicides – Seed treatments" ~ "Seed dressing",
+                                         Item == "Insecticides – Seed Treatments" ~ "Seed dressing",
+                                         TRUE ~ Item)) %>%
+  mutate(name_country = case_when(Area == "China, mainland" ~ "China",
+                                  Area == "China, Macao SAR" ~ "China",
+                                  Area == "China, Hong Kong SAR" ~ "China",
+                                  Area == "Bolivia (Plurinational State of)" ~ "Bolivia",
+                                  Area == "Czechia" ~ "Czech Republic",
+                                  Area == "Republic of Korea" ~ "Korea, Republic of",
+                                  Area == "North Macedonia" ~ "Macedonia, the former Yugoslav Republic of",
+                                  Area == "Niger" ~ "Nigeria",
+                                  Area == "China, Taiwan Province of" ~ "Taiwan, Province of China",
+                                  Area == "United Republic of Tanzania" ~ "Tanzania, United Republic of",
+                                  Area == "United Kingdom of Great Britain and Northern Ireland" ~ "United Kingdom",
+                                  Area == "United States of America" ~ "United States",
+                                  Area == "Venezuela (Bolivarian Republic of)" ~ "Venezuela",
+                                  TRUE ~ Area)) %>%
+  filter(name_country %in% input_bayer_2018_indication$name_country)
+
+sum(pesticide_FAO_2018$Value)
+```
+
+```{r}
+pesticide_FAO_2018_total <- pesticide_FAO_2018_total %>%
+  mutate(name_indication_fao = case_when(Item == "Fungicides – Seed treatments" ~ "Seed dressing",
+                                         Item == "Insecticides – Seed Treatments" ~ "Seed dressing",
+                                         TRUE ~ Item)) %>%
+  mutate(name_country = case_when(Area == "China, mainland" ~ "China",
+                                  Area == "China, Macao SAR" ~ "China",
+                                  Area == "China, Hong Kong SAR" ~ "China",
+                                  Area == "Bolivia (Plurinational State of)" ~ "Bolivia",
+                                  Area == "Czechia" ~ "Czech Republic",
+                                  Area == "Republic of Korea" ~ "Korea, Republic of",
+                                  Area == "North Macedonia" ~ "Macedonia, the former Yugoslav Republic of",
+                                  Area == "Niger" ~ "Nigeria",
+                                  Area == "China, Taiwan Province of" ~ "Taiwan, Province of China",
+                                  Area == "United Republic of Tanzania" ~ "Tanzania, United Republic of",
+                                  Area == "United Kingdom of Great Britain and Northern Ireland" ~ "United Kingdom",
+                                  Area == "United States of America" ~ "United States",
+                                  Area == "Venezuela (Bolivarian Republic of)" ~ "Venezuela",
+                                  TRUE ~ Area)) %>%
+  filter(name_country %in% input_bayer_2018_indication$name_country)
+
+sum(pesticide_FAO_2018$Value)
+```
+
+```{r}
+pesticide_FAO_2018_indication <- pesticide_FAO_2018 %>%
+  group_by(name_indication_fao, name_country) %>%
+  summarise(`applied_mass_[1000kg/yr]` = sum(Value)) %>%
+  mutate(source = "FAO")
+```
+
+```{r}
+pesticide_FAO_2018_indication_total <- pesticide_FAO_2018_total %>%
+  group_by(name_indication_fao, name_country) %>%
+  summarise(`applied_mass_[1000kg/yr]` = sum(Value)) %>%
+  mutate(source = "FAO")
+```
+
+
+
+```{r}
+input_bayer_2018_indicationcropna <- input_bayer_2018_indicationcrop %>%
+  filter(is.na(name_indication_fao))
+```
+
+
+
+
+```{r}
+pesticide_FAO_sum <- pesticide_FAO_2018_indication_total %>%
+  group_by(name_country) %>%
+  summarise(`applied_mass_[1000kg/yr]` = sum(`applied_mass_[1000kg/yr]`))
+```
+
+```{r}
+pesticide_FAO_sum_total <- pesticide_FAO_2018_indication_total %>%
+  filter(name_indication_fao == "Pesticides (total)")
+```
+
+```{r}
+input_bayer_2018_indication <- input_bayer_2018_final %>%
+  group_by(name_indication, name_country) %>%
+  summarise(`applied_mass_[1000kg/yr]` = sum(`applied_mass_[1000kg/yr]`))
+```
+
+```{r}
+input_bayer_2018_indication <- input_bayer_2018_final %>%
+  group_by(name_indication, name_country) %>%
+  summarise(`applied_mass_[1000kg/yr]` = sum(`applied_mass_[1000kg/yr]`))
+```
+
+```{r}
+input_bayer_2018_indicationcrop <- input_bayer_2018_final %>%
+  group_by(name_indication, name_country, name_crop, name_ai, code_bbch) %>%
+  summarise(`applied_mass_[1000kg/yr]` = sum(`applied_mass_[1000kg/yr]`))
+```
+
+```{r}
+input_bayer_2018_indicationcrop <- input_bayer_2018_indicationcrop %>%
+  mutate(group_bbch = case_when((code_bbch == "20" | code_bbch =="21" | code_bbch =="22" |code_bbch == "29" | code_bbch =="30" | code_bbch =="31" | code_bbch =="32" |code_bbch =="33" | code_bbch =="37" | code_bbch =="40" | code_bbch =="41") ~ "20 to 49",
+                                (code_bbch == "50" | code_bbch =="51" |code_bbch == "52" |code_bbch =="53" |code_bbch =="55" | code_bbch =="59" | code_bbch =="60" | code_bbch =="61" |code_bbch =="62" | code_bbch =="65" | code_bbch =="67") ~ "50 to 69",
+                                (code_bbch == "70" | code_bbch =="71" | code_bbch =="73" |code_bbch == "76" |code_bbch == "77" | code_bbch =="80" | code_bbch =="81" | code_bbch =="89" |code_bbch == "91" |code_bbch =="92" | code_bbch =="97" |code_bbch =="98") ~ "70 to 98",
+                                code_bbch == "99" ~ "99",
+                                TRUE ~ "00 to 19"))
+
+
+```
+
+```{r}
+input_bayer_2018_indication <- input_bayer_2018_indication %>%
+  mutate(name_indication_fao = case_when(name_indication == "FUNGICIDES" ~ "Fungicides and Bactericides",
+                                          name_indication == "FUNGICIDES/INSECT" ~ "Fungicides and Bactericides", 
+                                          name_indication == "GROWTH-REGULATORS" ~ "Plant Growth Regulators",
+                                          name_indication == "HERBICIDES" ~ "Herbicides",
+                                          name_indication == "INSECTICIDES" ~ "Insecticides",
+                                          name_indication == "OTHERS" ~ "Other Pesticides nes",
+                                          name_indication == "RODENTICIDES" ~ "Rodenticides",
+                                          TRUE ~ "Seed dressing"))
+```
+
+```{r}
+input_bayer_2018_indicationcrop <- input_bayer_2018_indicationcrop %>%
+  mutate(name_indication_fao = case_when(name_indication == "FUNGICIDES" ~ "Fungicides and Bactericides",
+                                          name_indication == "FUNGICIDES/INSECT" ~ "Fungicides and Bactericides", 
+                                          name_indication == "GROWTH-REGULATORS" ~ "Plant Growth Regulators",
+                                          name_indication == "HERBICIDES" ~ "Herbicides",
+                                          name_indication == "INSECTICIDES" ~ "Insecticides",
+                                          name_indication == "OTHERS" ~ "Other Pesticides nes",
+                                          name_indication == "RODENTICIDES" ~ "Rodenticides",
+                                          TRUE ~ "Seed dressing"))
+```
+
+```{r}
+input_bayer_2018_indicationcrop <- input_bayer_2018_indicationcrop %>%
+  left_join(harmonization_bayer, by = c("name_crop" = "name_crop"))
+```
+
+```{r}
+input_bayer_2018_indication <- input_bayer_2018_indication %>%
+  group_by(name_indication_fao, name_country) %>%
+  summarise(`applied_mass_[1000kg/yr]` = sum(`applied_mass_[1000kg/yr]`)) %>%
+  mutate(source = "Bayer")
+```
+
+```{r}
+input_bayer_2018_sum <- input_bayer_2018_indication %>%
+  group_by(name_country) %>%
+  summarise(`applied_mass_[1000kg/yr]` = sum(`applied_mass_[1000kg/yr]`)) %>%
+  mutate(name_indication_fao = "Pesticides (total)") %>%
+  mutate(source = "Bayer")
+
+sum(input_bayer_2018_sum$`applied_mass_[1000kg/yr]`)
+
+input_bayer_2018_sum_total <- rbind(input_bayer_2018_indication, input_bayer_2018_sum)
+```
+
+
+```{r}
+pesticie_FAO_input_2018_sum <- input_bayer_2018_sum %>%
+  left_join(pesticide_FAO_sum_total, by = c("name_country" = "name_country")) %>%
+  mutate(percentdiff = (`applied_mass_[1000kg/yr].x` - `applied_mass_[1000kg/yr].y`)/`applied_mass_[1000kg/yr].x` * 100) %>%
+  mutate(ratio = `applied_mass_[1000kg/yr].x`/`applied_mass_[1000kg/yr].y`) %>%
+  arrange(desc(ratio)) 
+
+#group1: within 10% differences
+pesticie_FAO_input_2018_sum1 <- pesticie_FAO_input_2018_sum %>%
+  filter(percentdiff <11 & percentdiff> -11)
+
+#group2: fao < bayer
+pesticie_FAO_input_2018_sum2 <- pesticie_FAO_input_2018_sum %>%
+  filter(percentdiff < -11)
+
+#group3: fao > bayer
+pesticie_FAO_input_2018_sum3 <- pesticie_FAO_input_2018_sum %>%
+  filter(percentdiff > 11)
+
+pesticie_FAO_input_2018_sum %>%
+  ggplot(., aes(x = reorder(name_country, -ratio), y = log(ratio), group = 1)) +
+  #geom_line(color="grey") +
+  geom_point(shape=21, color="black", fill="#69b3a2", size=4) +
+  theme_ipsum() +
+  ggtitle("log(M_DTU/M_FAO) in each country") +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+```
+
+```{r}
+pesticide_FAO_input_2018_category <- input_bayer_2018_sum_total %>%
+  full_join(pesticide_FAO_2018, by = c("name_country" = "name_country", "name_indication_fao" = "name_indication_fao")) %>%
+  mutate(ratio = `applied_mass_[1000kg/yr]`/Value) %>%
+  select(name_indication_fao, name_country, `applied_mass_[1000kg/yr]`, Value, `Flag Description`, ratio)
+```
+
+
+```{r}
+unique(pesticide_FAO_input_2018_category$name_country)
+```
+
+
+```{r}
+#pesticide_FAO_input_2018 <- input_bayer_2018_indication %>%
+  #left_join(pesticide_FAO_2018, by = c("name_country" = "Area", "name_indication_fao" = "name_indication_fao"))
+pesticide_FAO_input_2018 <- rbind(input_bayer_2018_indication, pesticide_FAO_2018_indication)
+```
+
+```{r}
+input_bayer_2018_indication %>%
+  ggplot(., aes(fill = name_indication, y = `applied_mass_[1000kg/yr]`, x = name_country)) +
+  geom_bar(position="stack", stat="identity") +
+  coord_flip() 
+```
+
+```{r}
+pesticide_FAO_input_2018 %>%
+  ggplot(., aes(fill = name_indication_fao, y = `applied_mass_[1000kg/yr]`, x = source)) +
+  geom_bar(position="stack", stat="identity") +
+  facet_wrap(~ name_country) +
+  theme_bw() + 
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 0))
+```
+```{r}
+input_bayer_2018_applied20 <- input_bayer_2018_applied %>%
+  filter(`applied_mass_[1000kg/yr]` > 20)
+sum(input_bayer_2018_applied20$`applied_mass_[1000kg/yr]`)
+```
+
+```{r}
+pesticide_FAO_input_2018 %>%
+  ggplot(., aes(fill = name_indication_fao, y = `applied_mass_[1000kg/yr]`, x = source)) +
+  geom_bar(position="stack", stat="identity") +
+  facet_wrap(~ name_country, scales = "free") +
+  theme_bw() + 
+  coord_flip() #+
+  #theme(axis.text.x = element_text(angle = 90, hjust = 0))
+```
+
+```{r}
+pesticide_FAO_input_2018 %>%
+  #filter(name_country == "China"| name_country == "United States" |name_country ==  "Brazil"|name_country ==  "Argentina"|name_country ==  "India"|name_country ==  "Australia") %>%
+  filter(name_country == "United States" |name_country ==  "Brazil"|name_country ==  "Argentina"|name_country ==  "India"|name_country ==  "Australia"|name_country == "Spain") %>%
+  ggplot(., aes(fill = name_indication_fao, y = `applied_mass_[1000kg/yr]`, x = source)) +
+  geom_bar(position="stack", stat="identity") +
+  facet_wrap(~ name_country) +
+  theme_bw() + 
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 0))
+```
+
+
+```{r}
+pesticide_FAO_input_2018 %>%
+  filter(name_country != "China"& name_country != "United States" &name_country !=  "Brazil"&name_country !=  "Argentina"&name_country !=  "India"&name_country !=  "Australia") %>%
+  filter(name_country != "United States" &name_country !=  "Brazil"&name_country !=  "Argentina"&name_country !=  "India"&name_country !=  "Australia"&name_country != "Spain") %>%
+  ggplot(., aes(fill = name_indication_fao, y = `applied_mass_[1000kg/yr]`, x = source)) +
+  geom_bar(position="stack", stat="identity") +
+  facet_wrap(~ name_country) +
+  theme_bw() + 
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 0))
+```
+
+```{r}
+pesticide_FAO_input_2018 %>%
+  #filter(name_country == "China"| name_country == "United States" |name_country ==  "Brazil"|name_country ==  "Argentina"|name_country ==  "India"|name_country ==  "Australia") %>%
+  filter(name_country == "China") %>%
+  ggplot(., aes(fill = name_indication_fao, y = `applied_mass_[1000kg/yr]`, x = source)) +
+  geom_bar(position="stack", stat="identity") +
+  facet_wrap(~ name_country) +
+  theme_bw() + 
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 0))
+```
+
+```{r}
+pesticide_FAO_input_2018 %>%
+  #filter(name_country == "China"| name_country == "United States" |name_country ==  "Brazil"|name_country ==  "Argentina"|name_country ==  "India"|name_country ==  "Australia") %>%
+  filter(name_country == "France") %>%
+  ggplot(., aes(fill = name_indication_fao, y = `applied_mass_[1000kg/yr]`, x = source)) +
+  geom_bar(position="stack", stat="identity") +
+  facet_wrap(~ name_country) +
+  theme_bw() + 
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 0))
+
+pesticide_FAO_input_2018_fr <- pesticide_FAO_input_2018 %>%
+  filter(name_country == "Spain") %>%
+  filter(source == "FAO")
+sum(pesticide_FAO_input_2018_fr$`applied_mass_[1000kg/yr]`)
+```
+
+group1 countries
+```{r}
+pesticide_FAO_2018_group1 <- pesticide_FAO_input_2018 %>%
+  filter(name_country == "Chile" |name_country ==  "Spain"|name_country ==  "Paraguay"|name_country ==  "South Africa"|name_country ==  "Italy"|name_country == "United Kingdom" |name_country ==  "United States" |name_country ==  "Portugal" |name_country ==  "Ukraine" |name_country ==  "Mexico" |name_country ==  "Brazil" |name_country ==  "Namibia" |name_country ==  "Netherlands" |name_country ==  "Greece") %>% 
+  mutate(source = case_when(source == "FAO" ~ "FAO",
+                            source == "Bayer" ~ "DTU"))
+pesticide_FAO_2018_group1 %>%
+  filter(name_country == "Brazil" | name_country ==  "Italy" | name_country ==  "South Africa") %>%
+  ggplot(., aes(fill = name_indication_fao, y = `applied_mass_[1000kg/yr]`, x = source)) +
+  geom_bar(position="stack", stat="identity") +
+  facet_wrap(~ name_country, scales = "free", ncol = 1) +
+  theme_bw() + 
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 0))
+```
+
+group1 indications
+```{r}
+pesticide_FAO_input_2018_categorydiff <- input_bayer_2018_indication %>%
+  full_join(pesticide_FAO_2018_indication, by = c("name_country" = "name_country", "name_indication_fao" = "name_indication_fao")) %>%
+  mutate(percentdiff = (`applied_mass_[1000kg/yr].x` - `applied_mass_[1000kg/yr].y`)/`applied_mass_[1000kg/yr].x` * 100) %>%
+  select(name_indication_fao, name_country, `applied_mass_[1000kg/yr].x`, `applied_mass_[1000kg/yr].y`, percentdiff)
+
+pesticide_FAO_input_2018_categorydiff <- pesticide_FAO_input_2018_categorydiff %>%
+  group_by(name_country) %>%
+  mutate(percent_bayer = `applied_mass_[1000kg/yr].x`/sum(`applied_mass_[1000kg/yr].x`, na.rm = TRUE)*100, percent_fao = `applied_mass_[1000kg/yr].y`/sum(`applied_mass_[1000kg/yr].y`, na.rm = TRUE)*100)
+```
+
+```{r}
+pesticide_FAO_input_2018_group1diff <- pesticide_FAO_input_2018_categorydiff %>%
+  filter(name_country == "Chile" |name_country ==  "Spain"|name_country ==  "Paraguay"|name_country ==  "South Africa"|name_country ==  "Italy"|name_country == "United Kingdom" |name_country ==  "United States" |name_country ==  "Portugal" |name_country ==  "Ukraine" |name_country ==  "Mexico" |name_country ==  "Brazil" |name_country ==  "Namibia" |name_country ==  "Netherlands" |name_country ==  "Greece")
+```
+
+group2 indications
+```{r}
+pesticide_FAO_2018_group2 <- pesticide_FAO_input_2018 %>%
+  filter(name_country %in% pesticie_FAO_input_2018_sum2$name_country)%>% 
+  mutate(source = case_when(source == "FAO" ~ "FAO",
+                            source == "Bayer" ~ "DTU"))
+pesticide_FAO_2018_group2 %>%
+  filter(name_country == "Algeria" | name_country ==  "Austria" | name_country ==  "Malaysia") %>%
+  ggplot(., aes(fill = name_indication_fao, y = `applied_mass_[1000kg/yr]`, x = source)) +
+  geom_bar(position="stack", stat="identity") +
+  facet_wrap(~ name_country, scales = "free", ncol = 1) +
+  theme_bw() + 
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 0))
+```
+```{r}
+pesticide_FAO_input_2018_group2diff <- pesticide_FAO_input_2018_categorydiff %>%
+  filter(name_country %in% pesticie_FAO_input_2018_sum2$name_country)
+```
+
+group3 indications
+```{r}
+pesticide_FAO_2018_group3 <- pesticide_FAO_input_2018 %>%
+  filter(name_country %in% pesticie_FAO_input_2018_sum3$name_country)%>% 
+  mutate(source = case_when(source == "FAO" ~ "FAO",
+                            source == "Bayer" ~ "DTU"))
+pesticide_FAO_2018_group3 %>%
+  filter(name_country == "Angola" | name_country ==  "Indonesia" | name_country ==  "India") %>%
+  ggplot(., aes(fill = name_indication_fao, y = `applied_mass_[1000kg/yr]`, x = source)) +
+  geom_bar(position="stack", stat="identity") +
+  facet_wrap(~ name_country, scales = "free", ncol = 1) +
+  theme_bw() + 
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 0))
+```
+
+```{r}
+pesticide_FAO_input_2018_group3diff <- pesticide_FAO_input_2018_categorydiff %>%
+  filter(name_country %in% pesticie_FAO_input_2018_sum3$name_country)
+```
+
+
+chemical class check
+```{r}
+chem_class <- read_excel("/Users/yuyue/Documents/Research/data gaps/Chemicals.MoA_database-v1b.xlsx", sheet = 1)
+```
+
+```{r}
+chemclass_ppdb <- read_excel("/Users/yuyue/Documents/Research/Database/chem/_USEtox_Chemicals_Bayer_v2.xlsx", sheet = 5)
+```
+
+
+```{r}
+bayer_chemclass <- input_bayer_2018_final %>%
+  left_join(chem_class, by = c("casrn_chemical" = "CAS"))
+bayer_chemclassuni <- 
+  unique(bayer_chemclass[c("casrn_chemical", "name_ai", "name_indication", "name_activetype", "Susan.class", "Chemical_Class_Chemical.book", "Chemical_Class_IRAC")])
+bayer_chemclassuni <- bayer_chemclassuni %>%
+  left_join(chemclass_ppdb, by = c("casrn_chemical" = "CAS RN")) %>%
+  select(casrn_chemical, name_ai, name_indication, name_activetype, Susan.class, Chemical_Class_Chemical.book, Chemical_Class_IRAC, `Pesticide type`, `Substance group`, `Chemical formula`)
+```
+
+```{r}
+write_csv(bayer_chemclassuni,"/Users/yuyue/Documents/Research/data gaps/bayer_chemclassuni.csv")
+```
+
+```{r}
+chem_class_alanwood <- read_excel("/Users/yuyue/Documents/Research/data gaps/Chemicals.MoA_database-v1b.xlsx", sheet = 5)
+```
+
+```{r}
+bayer_chemclassuni <- bayer_chemclassuni %>%
+  left_join(chem_class_alanwood, by = c("casrn_chemical" = "registry"))
+```
+
+
+check conversion factors
+```{r}
+conversion <- file.choose(new = FALSE)
+conversion <- read_excel(conversion, sheet = 4)
+```
+
+```{r}
+concentration_DE <- file.choose(new = FALSE)
+concentration_DE <- read_excel(concentration_DE, sheet = 2) 
+```
+
+```{r}
+concentration_DE <- concentration_DE %>%
+  filter(Distributor == "BAYER-CROPSCIENCE") %>%
+  mutate(name_indication_fao = case_when(Indication == "FUNGICIDES" ~ "Fungicides and Bactericides",
+                                         Indication == "FUNGICIDES/INSECT" ~ "Fungicides and Bactericides", 
+                                         Indication == "GROWTH-REGULATORS" ~ "Plant Growth Regulators",
+                                         Indication == "HERBICIDES" ~ "Herbicides",
+                                         Indication == "INSECTICIDES" ~ "Insecticides",
+                                         Indication == "OTHERS" ~ "Other Pesticides nes",
+                                         Indication == "RODENTICIDES" ~ "Rodenticides",
+                                          TRUE ~ "Seed dressing")) %>%
+  mutate(concentration = as.numeric(`g a.i./l prod`)/1000)
+```
+
+
+```{r}
+available1 <- unique(concentration_DE[c("CAS RN","name_indication_fao", "concentration")] ) %>%
+  filter(!is.na(concentration)) %>%
+  mutate(FAO = "FALSE")
+available2 <- conversion %>%
+  mutate(name_indication_fao = item) %>%
+  mutate(`CAS RN` = "FAO") %>%
+  mutate(concentration = `conversion factors`) %>% 
+  mutate(FAO = "TRUE") %>%
+  arrange(desc(concentration)) %>%
+  select("CAS RN","name_indication_fao", "concentration", "FAO") %>%
+  filter(name_indication_fao == "Insecticides" | name_indication_fao == "Herbicides" |name_indication_fao == "Fungicides and Bactericides" |name_indication_fao == "Plant Growth Regulators" | name_indication_fao == "Seed dressing")
+vec <- available2$name_indication_fao
+available <- rbind(available1, available2)
+
+p <- available %>%
+  ggplot(., aes(x = factor(name_indication_fao, level = vec), y = concentration)) + 
+  geom_point(aes(size = FAO, color = name_indication_fao, shape = FAO)) + 
+  scale_size_manual(values = c("TRUE" = 3, "FALSE" = 1))+
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+p
+ggplotly(p)
+
+
+
+
+```
+
+
+```{r}
+glyphosate <- input_bayer_2018 %>%
+  filter(name_activeingredient_bayer == "GLYPHOSATE") %>%
+  filter(Distributor != "BAYER-CROPSCIENCE")
+glyphosate <- unique(glyphosate[c("Product")])
+```
+
+
+
+unique product numbers for each chemical
+```{r}
+productnumber <- input_bayer_2018_6 %>%
+      group_by(name_ai, name_indication) %>% 
+      summarise(productnumber = n_distinct(Product))
+```
+
+
+summary statistics of application method frequency
+```{r}
+harmonization_crop <- file.choose(new = FALSE)
+harmonization_crop <- read_excel(harmonization_crop, sheet = 3)
+input_bayer_cropgroup <- input_bayer_2018_6 %>%
+  left_join(harmonization_crop, by = c("name_crop" = "name_crop")) %>%
+  select(name_region, name_group, code_bbch, name_crop, name_appagrobase, name_indication, `treated_area_[1000ha/yr]`, `applied_mass_[1000kg/yr]`)
+```
+
+```{r}
+applfreq <- input_bayer_cropgroup %>%
+  filter(name_appagrobase != "-") %>%
+  mutate(code_bbch = as.numeric(code_bbch)) %>%
+  mutate(code_bbchg = case_when((code_bbch >= 0 & code_bbch <= 9) ~ "00 to 10",
+                                (code_bbch >=10 & code_bbch <= 19) ~ "10 to 19",
+                                (code_bbch >=20 & code_bbch <= 29) ~ "20 to 29",
+                                (code_bbch >=30 & code_bbch <= 39) ~ "30 to 39",
+                                (code_bbch >=40 & code_bbch <= 49) ~ "40 to 49",
+                                (code_bbch >=50 & code_bbch <= 59) ~ "50 to 59",
+                                (code_bbch >=60 & code_bbch <= 69) ~ "60 to 69",
+                                (code_bbch >=70 & code_bbch <= 79) ~ "70 to 79",
+                                (code_bbch >=80 & code_bbch <= 89) ~ "80 to 89",
+                                (code_bbch >=90 & code_bbch <= 99) ~ "10 to 19",)) %>%
+  group_by(name_region, name_group, code_bbchg, name_appagrobase, name_indication) %>%
+  summarize(freq = n()) %>%
+  arrange(desc(freq), .by_group = TRUE)
+```
+
+```{r}
+appldose <- input_bayer_cropgroup %>%
+  filter(name_appagrobase != "-") %>%
+  mutate(code_bbch = as.numeric(code_bbch)) %>%
+  mutate(code_bbchg = case_when((code_bbch >= 0 & code_bbch <= 9) ~ "00 to 10",
+                                (code_bbch >=10 & code_bbch <= 19) ~ "10 to 19",
+                                (code_bbch >=20 & code_bbch <= 29) ~ "20 to 29",
+                                (code_bbch >=30 & code_bbch <= 39) ~ "30 to 39",
+                                (code_bbch >=40 & code_bbch <= 49) ~ "40 to 49",
+                                (code_bbch >=50 & code_bbch <= 59) ~ "50 to 59",
+                                (code_bbch >=60 & code_bbch <= 69) ~ "60 to 69",
+                                (code_bbch >=70 & code_bbch <= 79) ~ "70 to 79",
+                                (code_bbch >=80 & code_bbch <= 89) ~ "80 to 89",
+                                (code_bbch >=90 & code_bbch <= 99) ~ "10 to 19",)) %>%
+  mutate(dose = `applied_mass_[1000kg/yr]`/`treated_area_[1000ha/yr]`) %>%
+  group_by(name_region, name_group, code_bbchg, name_appagrobase, name_indication) %>%
+  summarize(dosesum = sum(`applied_mass_[1000kg/yr]`)/sum(`treated_area_[1000ha/yr]`), masssum = sum(`applied_mass_[1000kg/yr]`), areasum = sum(`treated_area_[1000ha/yr]`), freq = n()) %>%
+  ungroup() %>%
+  group_by(name_region, name_group, code_bbchg, name_indication) %>%
+  arrange(desc(dosesum), .by_group = TRUE) 
+```
+
+```{r}
+appldose_max <- appldose %>%
+  group_by(name_region, name_group, code_bbchg, name_indication) %>%
+  top_n(1, dosesum)
+unique(appldose_max$name_appagrobase)
+```
+
+
+
+```{r}
+applnodata <- input_bayer_cropgroup %>%
+  filter(name_appagrobase == "-") %>%
+  mutate(code_bbch = as.numeric(code_bbch)) %>%
+  mutate(code_bbchg = case_when((code_bbch >= 0 & code_bbch <= 9) ~ "00 to 10",
+                                (code_bbch >=10 & code_bbch <= 19) ~ "10 to 19",
+                                (code_bbch >=20 & code_bbch <= 29) ~ "20 to 29",
+                                (code_bbch >=30 & code_bbch <= 39) ~ "30 to 39",
+                                (code_bbch >=40 & code_bbch <= 49) ~ "40 to 49",
+                                (code_bbch >=50 & code_bbch <= 59) ~ "50 to 59",
+                                (code_bbch >=60 & code_bbch <= 69) ~ "60 to 69",
+                                (code_bbch >=70 & code_bbch <= 79) ~ "70 to 79",
+                                (code_bbch >=80 & code_bbch <= 89) ~ "80 to 89",
+                                (code_bbch >=90 & code_bbch <= 99) ~ "10 to 19",)) %>%
+  mutate(dose = `applied_mass_[1000kg/yr]`/`treated_area_[1000ha/yr]`) %>%
+  group_by(name_region, name_group, code_bbchg, name_indication) %>%
+  summarize(freq = n(), dosesum = sum(`applied_mass_[1000kg/yr]`)/sum(`treated_area_[1000ha/yr]`), masssum = sum(`applied_mass_[1000kg/yr]`), areasum = sum(`treated_area_[1000ha/yr]`))
+```
+
+```{r}
+applfilling <- applnodata %>%
+  left_join(appldose_max, by = c("name_region", "name_group", "code_bbchg", "name_indication")) #%>%
+  #filter(is.na(name_appagrobase))
+```
+
+```{r}
+input_check <- input_bayer_2018 %>%
+  group_by(name_country_bayer, name_crop_bayer, name_cropstage, casrn_chemical_bayer, name_appagrobase, `Distributor`, Product) %>%
+  summarize(freq = n()) %>%
+  filter(freq != 1)
+```
+
+```{r}
+input_check <- unique(input_bayer_2018[,c('name_activeingredient_bayer')])
+input_check_raw <- unique(input_bayer_2018[,c('casrn_chemical_bayer','name_activeingredient_bayer')])
+input_check <- unique(input_bayer_2018_6[,c('casrn_chemical_bayer','name_activeingredient_bayer', 'name_ai', 'casrn_chemical')])
+write.csv(input_check, 'input_check_ai.csv')
+write.csv(input_check_raw, 'input_check_ai_raw.csv')
+
+
+input_check <- input_check %>%
+  group_by(casrn_chemical_bayer) %>%
+  summarize(freq = n()) %>%
+  filter(freq != 1)
+```
+
+
+```{r}
+indication_check <- input_bayer_2018_final %>% 
+  group_by(casrn_chemical) %>%
+  filter('HERBICIDES' %in% name_indication) %>%
+  summarise(value = list(unique(name_indication)), count = n_distinct(name_indication)) %>%
+  filter(count >= 2)
+```
+
+```{r}
+product_check <- input_bayer_2018 %>% 
+  group_by(Product) %>%
+  filter('HERBICIDES' %in% name_indication) %>%
+  summarise(value = list(unique(name_indication)), count = n_distinct(name_indication)) %>%
+  filter(count >=2)
+```

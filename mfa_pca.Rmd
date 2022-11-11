@@ -1,0 +1,129 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+
+
+```{r}
+mfa_other <- input_sourceother %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, name_region, name_cropgroup, name_chemclass, name_indication, name_moagroup, name_refapp) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(massperc = treated_area_kha/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, summass, sumarea, name_region, name_cropgroup, name_chemclass, mindose, maxdose, name_indication, name_moagroup,name_refapp) %>%
+  #summarize(wd = sum(normalizedweight * dose))
+  summarize(wd = sum(applied_mass_kkg)/sum(treated_area_kha))
+```
+
+```{r}
+annualtemp <- read_xlsx("C:/me/Database/harmonization/harmonization_country.xlsx", sheet = 3)
+mfa_othert <- mfa_other %>%
+  left_join(annualtemp, by ="name_country")
+
+mfa_othert <- mfa_othert %>%
+  ungroup() %>%
+  select(casrn_chemical, name_indication, name_moagroup, name_chemclass, climate_zone, climate_zone_full, name_country, `annual temp`, `annual precipitation mm`, `minimum temp`, hdi, gdp, name_crop_earthstat, name_cropgroup, name_refapp, wd)
+```
+
+```{r}
+library(FactoMineR)
+
+res.mfa <- MFA(mfa_othert, 
+               group = c(4, 3, 5, 2, 1), 
+               type = c("n", "n", "s", "n", "n"),
+               name.group = c("chem","country","country_num",
+                              "crop", "app"),
+               num.group.sup = c(1, 5),
+               graph = FALSE)
+
+print(res.mfa)                                                                       
+```
+```{r}
+library("factoextra")
+eig.val <- get_eigenvalue(res.mfa)
+head(eig.val)
+
+fviz_screeplot(res.mfa)
+```
+```{r}
+group <- get_mfa_var(res.mfa, "group")
+group
+
+fviz_mfa_var(res.mfa, "group")
+```
+
+```{r}
+res.famd <- FAMD(mfa_othert, graph = FALSE)
+```
+
+# generalized linear model
+```{r}
+glimpse(mfa_othert)
+
+mfa_other_rescale <- mfa_othert %>%
+  select(-casrn_chemical) %>%
+  select(-climate_zone_full) %>%
+  #mutate_if(is.numeric, funs(as.numeric(scale(.)))) %>%
+  mutate_if(is.character, funs(as.factor(.)))
+glimpse(mfa_other_rescale)
+
+is.prone <- function(x) is.factor(x) | is.character(x)
+id <- sapply(dat2, is.prone)
+mod$xlevels <- Map(union, mod$xlevels, lapply(dat2[id], unique))
+
+mfa_other_rescale <- cbind(mfa_other_rescale, mfa_othert$wd)
+
+set.seed(1234)
+
+
+train.dat <- createDataPartition(mfa_other_rescale$name_country, p=0.9, list=FALSE)
+test.dat<- mfa_other_rescale[-train.dat, ] #Select other rows to be the test data
+train.dat<- mfa_other_rescale[train.dat, ]
+
+formula <- wd~.
+logit <- glm(formula, data = train.dat)
+summary(logit)
+
+is.prone <- function(x) is.factor(x) | is.character(x)
+id <- sapply(mfa_other_rescale, is.prone)
+logit$xlevels <- Map(union, logit$xlevels, lapply(mfa_other_rescale[id], unique))
+
+lapply(logit, class)[1:3]
+
+predict <- predict(logit, test.dat)
+predict.df <- as.data.frame(predict)
+test.dat.pred <- cbind(test.dat, predict.df) %>%
+  mutate(factor = wd/predict)
+
+ggplot(test.dat.pred, aes(x = factor)) +
+  geom_density()
+table_mat <- table(test.dat$wd, predict > 0.5)
+table_mat
+
+accuracy_Test <- sum(diag(table_mat)) / sum(table_mat)
+accuracy_Test
+```
+
+
+
+# Bayesian Additive Regression Tree (BART)
+```{r}
+y <- mfa_other_rescale$wd
+mfa_other_rescale <- mfa_other_rescale %>%
+  drop_na()
+train.dat <- createDataPartition(mfa_other_rescale$name_country, p=0.8, list=FALSE)
+test.dat<- mfa_other_rescale[-train.dat, ] #Select other rows to be the test data
+test.y <- y[-train.dat]
+train.y <- y[train.dat]
+train.dat<- mfa_other_rescale[train.dat, ]
+
+library(BayesTree)
+
+bartFit = bart(train.dat, train.y, ndpost = 1000)
+
+```
+
+#

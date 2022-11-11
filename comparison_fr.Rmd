@@ -1,0 +1,62 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+input_fr <- input_bayer_2018_final %>%
+  filter(name_country == "France")
+```
+
+
+```{r}
+vente_fr <- file.choose(new = FALSE)
+vente_fr <- read_excel(vente_fr, sheet = 1)
+```
+
+
+```{r}
+vente_fr_aggr <- vente_fr %>%
+  group_by(cas) %>%
+  summarize(mass_vente = sum(quantite_substance)/1000)
+```
+
+```{r}
+sum(vente_fr$quantite_substance/1000, na.rm = TRUE)
+```
+
+
+```{r}
+input_fr_aggr <- input_fr %>%
+  group_by(casrn_chemical) %>%
+  summarize(mass_input = sum(`applied_mass_[1000kg/yr]`))
+```
+
+```{r}
+fr_aggr <- input_fr_aggr %>%
+  full_join(vente_fr_aggr, by = c("casrn_chemical"="cas"))
+```
+
+
+```{r}
+fr_aggr_20 <- fr_aggr %>%
+  top_n(20, mass_vente) %>%
+  arrange(mass_vente)
+vec <- fr_aggr_20$casrn_chemical
+
+fr_aggr_melt <- melt(fr_aggr_20, id.vars = "casrn_chemical", measure.vars = c("mass_input", "mass_vente"))
+
+fr_aggr_melt <- fr_aggr_melt %>%
+  mutate(data_source = variable, `applied_mass_[1000kg/yr]` = value)
+
+fr_aggr_melt %>%
+  ggplot(., aes(fill = data_source, y = `applied_mass_[1000kg/yr]`, x = factor(casrn_chemical, level = vec))) +
+  geom_bar(position="dodge", stat="identity") +
+  theme_bw() +
+  coord_flip() +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+  annotation_logticks(sides="b") +
+  labs(x = "casrn_chemical", title = "comparison of applied mass for top 20 chemicals in 2018 in France")
+```
+

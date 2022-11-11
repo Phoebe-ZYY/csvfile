@@ -1,0 +1,1120 @@
+---
+title: "article1-figures"
+output: html_notebook
+---
+
+```{r}
+#remotes::install_github("coolbutuseless/ggpattern")
+library(dplyr)
+library(scales)
+library(ggplot2)
+library(stringr)
+library(viridis)
+library(readxl)
+library(ggpmisc)
+library(mgcv)
+library(ggpattern)
+```
+
+
+#fig2A dose histogram
+```{r}
+#using input_caschem, disclude unspecific chems & biological chems
+input_caschem <- input_caschem %>%
+  filter(name_chemclass1 != "biological")
+
+#histogram overall dose
+input_caschem %>%
+  mutate(name_activeindication = str_remove(name_activeindication, "-ACTIV$")) %>%
+  #ggplot(., aes(x = dose_kgperha, fill = name_cropgroup)) +
+  filter(!is.na(name_region.y)) %>%
+  #ggplot(., aes(x = dose, fill = name_activeindication)) +
+  #ggplot(., aes(x = dose_kgperha, fill = name_refapp)) +
+  #ggplot(., aes(x = dose_kgperha, fill = bbch_group)) +
+  ggplot(., aes(x = dose_kgperha, fill = name_region.y)) +
+  #ggplot(., aes(x = dose_kgperha, fill = name_stagegroup)) +
+  #ggplot(., aes(x = dose_kgperha)) +
+  geom_histogram(color="#e9ecef", alpha=0.6)+
+  scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          labels = trans_format("log10", math_format(10^.x)))+
+  #scale_fill_brewer(palette="Paired")+
+  scale_fill_viridis(discrete = TRUE)+
+  theme_bw() +
+  theme(axis.text = element_text(size = 30), axis.title = element_text(size = 30), legend.text = element_text(size = 25), legend.title = element_text(size = 30), legend.position = c(0.8,0.2))
+  
+ggsave("20220830dosehistogram_regionstac.png", width = 50, height = 50, units = "cm")
+
+#histogram dose over 10
+input_caschem %>%
+  mutate(name_activeindication = str_remove(name_activeindication, "-ACTIV$")) %>%
+  filter(dose > 10) %>%
+  #filter(!is.na(name_region.y)) %>%
+  #ggplot(., aes(x = dose_kgperha, fill = name_cropgroup)) +
+  ggplot(., aes(x = dose, fill = name_activeindication)) +
+  #ggplot(., aes(x = dose_kgperha, fill = name_refapp)) +
+  #ggplot(., aes(x = dose_kgperha, fill = bbch_group)) +
+  #ggplot(., aes(x = dose_kgperha, fill = name_region)) +
+  #ggplot(., aes(x = dose_kgperha, fill = name_stagegroup)) +
+  #ggplot(., aes(x = dose_kgperha)) +
+  geom_histogram(color="#e9ecef", alpha=0.6, position = 'identity')+
+  scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          labels = trans_format("log10", math_format(10^.x)))+
+  scale_fill_brewer(palette="Paired")+
+  theme_bw() +
+  theme(axis.text = element_text(size = 30), axis.title = element_text(size = 30), legend.text = element_text(size = 30), legend.title = element_text(size = 30), legend.position = "NA")
+  
+ggsave("20220830dosehistogram_activeindicationdoseover10.png", width = 50, height = 50, units = "cm")
+
+#using input_appbbch_applicationbbch_check (after imputation)
+#identify which are imputed or not
+
+input_appbbch_applicationbbch_check %>%
+  mutate(name_activeindication = str_remove(name_activeindication, "-ACTIV$")) %>%
+  filter(treatment != "null") %>%
+  #ggplot(., aes(x = dose_kgperha, fill = name_cropgroup)) +
+  ggplot(., aes(x = dose, fill = treatment)) +
+  #ggplot(., aes(x = dose_kgperha, fill = name_refapp)) +
+  #ggplot(., aes(x = dose_kgperha, fill = bbch_group)) +
+  #ggplot(., aes(x = dose_kgperha, fill = name_region)) +
+  #ggplot(., aes(x = dose_kgperha, fill = name_stagegroup)) +
+  #ggplot(., aes(x = dose_kgperha)) +
+  geom_histogram(color="#e9ecef", alpha=0.6, position = 'identity')+
+  scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          labels = trans_format("log10", math_format(10^.x)))+
+  scale_fill_viridis(discrete = TRUE)+
+  theme_bw() +
+  theme(axis.text = element_text(size = 30), axis.title = element_text(size = 30), legend.text = element_text(size = 28), legend.title = element_text(size = 30), legend.position = c(0.8,0.3))
+  
+ggsave("20220830dosehistogram_seedsoil.png", width = 50, height = 50, units = "cm")
+
+input_appbbch_applicationbbch_check %>%
+  mutate(name_activeindication = str_remove(name_activeindication, "-ACTIV$")) %>%
+  filter(treatment != "null") %>%
+  #filter(dose <0.01) %>%
+  #ggplot(., aes(x = dose_kgperha, fill = name_cropgroup)) +
+  ggplot(., aes(x = dose, fill = treatment)) +
+  #ggplot(., aes(x = dose_kgperha, fill = name_refapp)) +
+  #ggplot(., aes(x = dose_kgperha, fill = bbch_group)) +
+  #ggplot(., aes(x = dose_kgperha, fill = name_region)) +
+  #ggplot(., aes(x = dose_kgperha, fill = name_stagegroup)) +
+  #ggplot(., aes(x = dose_kgperha)) +
+  geom_histogram(color="#e9ecef", alpha=0.6)+
+  scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          labels = trans_format("log10", math_format(10^.x)))+
+  scale_fill_viridis(discrete = TRUE)+
+  theme_bw() +
+  theme(axis.text = element_text(size = 30), axis.title = element_text(size = 30), legend.text = element_text(size = 28), legend.title = element_text(size = 30), legend.position = c(0.8,0.3))
+
+#pattern histogram
+input_appbbch_applicationbbch_check$treatment_adj <- factor(input_appbbch_applicationbbch_check$treatment, levels=c('soil', 'seed', 'crop'))
+input_appbbch_applicationbbch_check$predori_treatment <- paste0(input_appbbch_applicationbbch_check$treatment, input_appbbch_applicationbbch_check$predori)
+input_appbbch_applicationbbch_check$predori_treatment <- factor(input_appbbch_applicationbbch_check$predori_treatment, levels=c('soilpred',"soilori", 'seedpred','seedori', 'croppred', 'cropori'))
+p <- input_appbbch_applicationbbch_check %>%
+  #mutate(predori_treatment = paste0(treatment_adj, predori)) %>%
+  mutate(name_activeindication = str_remove(name_activeindication, "-ACTIV$")) %>%
+  filter(treatment_adj != "null") %>%
+  filter(dose >10) %>%
+  #ggplot(., aes(x = dose_kgperha, fill = name_cropgroup)) +
+  ggplot(., aes(x = dose)) +
+  #ggplot(., aes(x = dose_kgperha, fill = name_refapp)) +
+  #ggplot(., aes(x = dose_kgperha, fill = bbch_group)) +
+  #ggplot(., aes(x = dose_kgperha, fill = name_region)) +
+  #ggplot(., aes(x = dose_kgperha, fill = name_stagegroup)) +
+  #ggplot(., aes(x = dose_kgperha)) +
+  geom_histogram(aes(fill = treatment_adj), color="black", alpha=0.6) +
+  geom_histogram_pattern(aes(pattern = predori_treatment, pattern_color = predori_treatment), fill = "transparent", pattern_spacing = 0.01, pattern_density = 0.1, pattern_fill = 'NA', color = "black")+
+  scale_pattern_manual(values = c('stripe', 'stripe', 'stripe', 'stripe', 'stripe', 'stripe')) +
+  scale_pattern_color_manual(values = c( "grey20",'#FEF17C',  "grey20",'#8F6798',  'grey20','#7ABDBA')) +
+  scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          labels = trans_format("log10", math_format(10^.x)))+
+  scale_fill_manual(values = c('#fde725','#440154','#21918c')) +
+  theme_bw() +
+  theme(axis.text = element_text(size = 30), axis.title = element_text(size = 30), legend.text = element_text(size = 28), legend.title = element_text(size = 30), legend.position = 'NA')
+
+ggplot_build(p)$data
+ggsave("20220909dosehistogram_seedsoilpattern_densecolormanualdoseover10.png", width = 50, height = 50, units = "cm")
+```
+
+#figure2B dose boxplots
+```{r}
+#summary_wdhaother, using crop treatment doses (after imputation of crop/seed/soil)
+input_appbbch_multitreatment <- input_appbbch_applicationbbch_check %>%
+  group_by(casrn_chemical) %>%
+  summarize(treatment = list(unique(treatment)), mass = sum(applied_mass_kkg))
+#for crop treatment
+input_appbbch_other <- input_appbbch_applicationbbch_check %>%
+  filter(treatment == "crop")
+summary_wdhaother <- input_appbbch_other %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, name_region.y, name_cropgroup, name_chemclass) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(massperc = treated_area_kha/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, summass, sumarea, name_region.y, name_cropgroup, name_chemclass, mindose, maxdose) %>%
+  summarize(wd = sum(normalizedweight * dose)) 
+summary_wdhaother_chemmass <- summary_wdhaother %>%
+  group_by(casrn_chemical) %>%
+  summarize(summass = sum(summass))
+#for soil treatment
+input_appbbch_soil <- input_appbbch_applicationbbch_check %>%
+  filter(treatment == "soil")
+summary_wdhasoil <- input_appbbch_soil %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, name_region.y, name_cropgroup, name_chemclass) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(massperc = treated_area_kha/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, summass, sumarea, name_region.y, name_cropgroup, name_chemclass, mindose, maxdose) %>%
+  summarize(wd = sum(normalizedweight * dose)) 
+#for seed treatment
+input_appbbch_seed <- input_appbbch_applicationbbch_check %>%
+  filter(treatment == "seed")
+summary_wdhaseed <- input_appbbch_seed %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, name_region.y, name_cropgroup, name_chemclass) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(massperc = treated_area_kha/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, summass, sumarea, name_region.y, name_cropgroup, name_chemclass, mindose, maxdose) %>%
+  summarize(wd = sum(normalizedweight * dose)) 
+
+
+summary_wdhaother_chemmass <- summary_wdhaother %>%
+  group_by(casrn_chemical) %>%
+  summarize(summass = sum(summass))
+
+#crop_earthstat as x axis
+vec <- summary_wdhaother%>%
+  filter(casrn_chemical == "1071-83-6") %>%
+  group_by(name_crop_earthstat, name_cropgroup) %>%
+  summarize(m = mean(`wd`, na.rm = TRUE)) %>%
+  ungroup() %>%
+  group_by(name_cropgroup) %>%
+  arrange(desc(m), .by_group = TRUE) %>%
+  pull(name_crop_earthstat)
+       
+
+summary_wdhaother %>%
+  mutate(`dose, kg/ha` = wd, `crop group` = name_cropgroup, region = name_region.y) %>%
+  filter(casrn_chemical == "1071-83-6") %>%
+  ggplot(aes(x = factor(name_crop_earthstat, levels = vec), y = `dose, kg/ha`)) +
+  geom_boxplot(#size = 1,
+                outlier.shape = 1,
+                outlier.color = "black",
+                outlier.size = 1,
+                aes(fill = `crop group`),
+                alpha = 0.7) +
+  geom_jitter(alpha = 0.3, width = 0.01, aes(color = region)) +
+  theme_bw() +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                labels = trans_format("log10", math_format(10^.x))) +
+            #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+            #facet_wrap(~name_cropgroup.y, ncol = 11) +
+  scale_color_brewer(palette="Paired") +
+  scale_fill_brewer(palette = "Set3") +
+  xlab("crop") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) 
+ggsave("20220830doseboxplot_cropglyphosate.png", width = 14, height = 7)
+
+#cropgroup as x axis, atrazine
+summary_wdha %>%
+  mutate(`dose, kg/ha` = wd, `crop group` = name_cropgroup, region = name_region.y) %>%
+  filter(casrn_chemical == "8018-01-7") %>%
+  ggplot(aes(x = `crop group`, y = `dose, kg/ha`)) +
+  geom_boxplot(size = 1,
+                outlier.shape = 1,
+                outlier.color = "NA",
+                outlier.size = 1,
+                alpha = 0.7) +
+  geom_jitter(alpha = 0.8, width = 0.2, aes(color = region)) +
+  theme_bw() +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                labels = trans_format("log10", math_format(10^.x))) +
+            #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+            #facet_wrap(~name_cropgroup.y, ncol = 11) +
+  #scale_color_brewer(palette="Paired") +
+  scale_color_brewer(palette = "Set3") +
+  xlab("crop") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), legend.position = c(0.5,0.1), legend.direction = "horizontal", legend.background = element_blank())
+ggsave("20220830doseboxplot_paraquat.png", width = 8, height = 6)
+
+#cropgroup as x axis, soil
+summary_wdha %>%
+  mutate(`dose, kg/ha` = wd, `crop group` = name_cropgroup, region = name_region.y) %>%
+  filter(casrn_chemical == "10061-02-6") %>%
+  ggplot(aes(x = `crop group`, y = `dose, kg/ha`)) +
+  geom_boxplot(size = 1,
+                outlier.shape = 1,
+                outlier.color = "NA",
+                outlier.size = 1,
+                alpha = 0.7) +
+  geom_jitter(alpha = 0.8, width = 0.2, aes(color = region)) +
+  theme_bw() +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                labels = trans_format("log10", math_format(10^.x))) +
+            #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+            #facet_wrap(~name_cropgroup.y, ncol = 11) +
+  #scale_color_brewer(palette="Paired") +
+  scale_color_brewer(palette = "Set3") +
+  xlab("crop") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), legend.position = c(0.5,0.1), legend.direction = "horizontal", legend.background = element_blank())
+ggsave("20220830doseboxplot_paraquat.png", width = 8, height = 6)
+
+#separate by crop/seed/soil to see distribution of doses
+chem <- "420-04-2"
+wdhaother_chem <- summary_wdhaother%>%
+  filter(casrn_chemical == chem) %>%
+  mutate(treatment = "crop")
+wdhasoil_chem <- summary_wdhasoil %>%
+  filter(casrn_chemical == chem) %>%
+  mutate(treatment = "soil")
+wdhaseed_chem <- summary_wdhaseed %>%
+  filter(casrn_chemical == chem) %>%
+  mutate(treatment = "seed")
+wdha_chem <- rbind(wdhaother_chem, wdhasoil_chem, wdhaseed_chem)
+vec <- wdha_chem %>%
+  filter(treatment == "crop") %>%
+  group_by(name_crop_earthstat, name_cropgroup) %>%
+  summarize(m = mean(`wd`, na.rm = TRUE)) %>%
+  ungroup() %>%
+  group_by(name_cropgroup) %>%
+  arrange(desc(m), .by_group = TRUE) %>%
+  pull(name_crop_earthstat)
+wdha_chem %>%
+  mutate(`dose, kg/ha` = wd, `crop group` = name_cropgroup, region = name_region.y) %>%
+  ggplot(aes(x = factor(name_crop_earthstat, levels = vec), y = `dose, kg/ha`)) +
+  geom_boxplot(#size = 1,
+                outlier.shape = 1,
+                outlier.color = "black",
+                outlier.size = 1,
+                aes(fill = treatment),
+                alpha = 0.7,
+                position = "identity") +
+  geom_jitter(alpha = 0.3, width = 0.01, aes(color = region)) +
+  theme_bw() +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                labels = trans_format("log10", math_format(10^.x))) +
+            #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+            #facet_wrap(~name_cropgroup.y, ncol = 11) +
+  scale_color_brewer(palette="Paired") +
+  scale_fill_brewer(palette = "Set3") +
+  xlab("crop") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+ggsave("20220831doseboxplot_cropallcyanamideseedsoil.png", width = 14, height = 7)
+
+
+```
+
+
+#figure 3 dose relation to hdi/climate(eg. temp)
+```{r}
+annualtemp <- read_xlsx("C:/me/Database/harmonization/harmonization_country.xlsx", sheet = 3)
+#select top mass 40 countries
+chemicalmass <- summary_wdhaother %>%
+  group_by(casrn_chemical) %>%
+  #summarize(chemmass = sum(summass)) %>%
+  summarize(countrycount = n_distinct(name_country)) %>%
+  #arrange(desc(chemmass)) %>%
+  arrange(desc(countrycount)) %>%
+  slice_head(n = 25)
+#select top mass 50 crops
+cropmass <- summary_wdhaother %>%
+  group_by(name_crop_earthstat) %>%
+  #summarize(cropmass = sum(summass)) %>%
+  summarize(countrycount = n_distinct(name_country)) %>%
+  #arrange(desc(cropmass)) %>%
+  arrange(desc(countrycount)) %>%
+  slice_head(n = 25)
+#select top mass 50 crops
+cropmass <- summary_wdhacropcountryotherindi %>%
+  group_by(name_crop_earthstat) %>%
+  #summarize(cropmass = sum(summass)) %>%
+  summarize(countrycount = n_distinct(name_country)) %>%
+  #arrange(desc(cropmass)) %>%
+  arrange(desc(countrycount)) %>%
+  slice_head(n = 25)
+#select crop-chemical more countries coverage
+countrycount <- input_appbbch_other %>%
+  filter(name_cropgroup == "Cereals") %>%
+  group_by(name_crop_earthstat, casrn_chemical) %>%
+  summarize(countcountry = n_distinct(name_country)) %>%
+  ungroup() %>%
+  arrange(desc(countcountry)) %>%
+  slice_head(n = 36)
+
+dose_lm_chemcrop <- read.csv("C:/Users/yuyzh/Documents/20220603doselinearregression_chemcrop.csv")
+
+#crop <- "rye"
+chemical <- "1071-83-6"
+#indication <-"GROWTH-REGULATORS"
+cropgroup <- "Cereals"
+countcountry <- 18
+#count <- 13
+
+re_cropchemical <- summary_wdhaother %>%
+  #filter(name_cropgroup == "Cereals") %>%
+  #filter(dose < 2) %>%
+  #filter(wd>0.1) %>%
+  #right_join(countrycount, by = c("name_crop_earthstat", "casrn_chemical")) %>%
+  #filter(casrn_chemical %in% chemicalmass$casrn_chemical) %>%
+  #filter(name_crop_earthstat %in% cropmass$name_crop_earthstat) %>%
+  left_join(annualtemp, by = c("name_country" = "name_country")) %>%
+  filter(!is.na(climate_zone)) #%>%
+  #filter(name_crop_earthstat == crop) %>%
+  #filter(name_cropgroup == cropgroup) %>%
+  #filter(name_indication == indication)
+  filter(casrn_chemical == chemical)
+n_distinct(re_cropchemical$name_crop_earthstat)
+n_distinct(re_cropchemical$casrn_chemical)
+
+re_cropchemical %>%
+  filter(name_cropgroup == "Vegetables&Melons") %>%
+  filter(name_chemclass == "polymer") %>%
+  mutate(climatezone = case_when(climate_zone == "A" ~ "A tropical",
+                                 climate_zone == "B" ~ "B dry",
+                                 climate_zone == "C" ~ "C temperate",
+                                 climate_zone == "D" ~ "D continental",
+                                 climate_zone == "E" ~ "E polar")) %>%
+  #filter(wd>0.1) %>% 
+  filter(name_country != "Venezuela") %>%
+  ggplot(aes(x = latitude, y = wd)) +
+  #geom_point(aes(color = climate_zone), size = 0.5) +
+  geom_point(aes(color = climatezone), size = 2) +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #geom_smooth(method='lm', color = "dark grey") +
+  stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2))
+  #stat_poly_eq(aes(label = paste(after_stat(eq.label),
+                                 #after_stat(rr.label), 
+                                 #after_stat(p.value.label), sep = "*\", \"*"))) +
+  #geom_smooth(color = "dark grey") +
+  #geom_errorbar(aes(ymin = mindose, ymax=  maxdose), width=0.5) +
+  #facet_wrap( ~ name_region.y, scales = "free_y" ) +
+  theme_bw() #+
+  labs(title = paste0(cropgroup, "+", chemical, "+", count))
+  #theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+#for each model finding the highest r-squared cropclass, chemclass combination
+#quadratic
+quadraticcropgroupchemclass <- lm.dat.out9 %>%
+  filter(count > 30) %>%
+  arrange(desc(quadraticadj_rsquared)) %>%
+  slice(1:25)
+re_cropclasschemclassfull <- data.frame()
+for (i in c(1: nrow(quadraticcropgroupchemclass))) {
+  cropclass <- quadraticcropgroupchemclass[i,1]
+  chemclass <- quadraticcropgroupchemclass[i,2]
+  re_cropclasschemclass <- re_cropchemical %>%
+    filter(name_cropgroup == cropclass & name_chemclass1 == chemclass)
+  re_cropclasschemclassfull <- rbind(re_cropclasschemclassfull, re_cropclasschemclass)
+  print(i)
+}
+  
+re_cropclasschemclassfull %>%
+  #filter(name_cropgroup %in% quadraticcropgroupchemclass$name_cropgroup) %>%
+  #filter(name_chemclass %in% quadraticcropgroupchemclass$name_chemclass) %>%
+  mutate(climatezone = case_when(climate_zone == "A" ~ "A tropical",
+                                 climate_zone == "B" ~ "B dry",
+                                 climate_zone == "C" ~ "C temperate",
+                                 climate_zone == "D" ~ "D continental",
+                                 climate_zone == "E" ~ "E polar")) %>%
+  #filter(wd>0.1) %>% 
+  filter(name_country != "Venezuela") %>%
+  ggplot(aes(x = latitude, y = wd)) +
+  #geom_point(aes(color = climate_zone), size = 0.5) +
+  geom_point(aes(color = climatezone), size = 2) +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+  #stat_smooth(aes(y=logwd), method = "lm", formula = y ~ x + I(x^2)) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #geom_smooth(method='lm', color = "dark grey") +
+  stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2)) +
+  #stat_poly_eq(aes(label = paste(after_stat(eq.label),
+                                 #after_stat(rr.label), 
+                                 #after_stat(p.value.label), sep = "*\", \"*"))) +
+  #geom_smooth(color = "dark grey") +
+  #geom_errorbar(aes(ymin = mindose, ymax=  maxdose), width=0.5) +
+  facet_wrap( ~ name_cropgroup + name_chemclass1, scales = "free_y" ) +
+  theme_bw() #+ 
+  labs(title = paste0(cropgroup, "+", chemical, "+", count))
+  #theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+ggsave("20220930quadraticchemclasscropgroup_lat25.jpeg", height = 8, width = 12)
+  
+gdpcropgroupchemclass <- lm.dat.out9 %>%
+  filter(count > 30) %>%
+  arrange(desc(gdpadj_rsquared)) %>%
+  slice(1:25) %>%
+  select(name_cropgroup, name_chemclass1, gdpadj_rsquared)
+re_cropclasschemclassfull <- data.frame()
+for (i in c(1: nrow(gdpcropgroupchemclass))) {
+  cropclass <- gdpcropgroupchemclass[i,1]
+  chemclass <- gdpcropgroupchemclass[i,2]
+  re_cropclasschemclass <- re_cropchemical %>%
+    filter(name_cropgroup == cropclass & name_chemclass1 == chemclass)
+  re_cropclasschemclassfull <- rbind(re_cropclasschemclassfull, re_cropclasschemclass)
+  print(i)
+}
+
+write.csv(re_cropchemical, "20221031re_cropchemical.csv")
+  
+re_cropclasschemclassfull %>%
+  #filter(name_cropgroup %in% quadraticcropgroupchemclass$name_cropgroup) %>%
+  #filter(name_chemclass %in% quadraticcropgroupchemclass$name_chemclass) %>%
+  mutate(climatezone = case_when(climate_zone == "A" ~ "A tropical",
+                                 climate_zone == "B" ~ "B dry",
+                                 climate_zone == "C" ~ "C temperate",
+                                 climate_zone == "D" ~ "D continental",
+                                 climate_zone == "E" ~ "E polar")) %>%
+  #filter(wd>0.1) %>% 
+  filter(name_country != "Venezuela") %>%
+  ggplot(aes(x = gdp, y = wd)) +
+  #geom_point(aes(color = climate_zone), size = 0.5) +
+  geom_point(aes(color = climatezone), size = 2) +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+  #stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2)) +
+  scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+  geom_smooth(method='lm', color = "dark grey") +
+  #stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2))
+  stat_poly_eq(formula= y ~ x, aes(label = paste(after_stat(rr.label), 
+                                 after_stat(p.value.label), sep = "*\", \"*"))) +
+  #geom_smooth(color = "dark grey") +
+  #geom_errorbar(aes(ymin = mindose, ymax=  maxdose), width=0.5) +
+  facet_wrap( ~ name_cropgroup + name_chemclass1, scales = "free_y" ) +
+  theme_bw() #+ 
+  labs(title = paste0(cropgroup, "+", chemical, "+", count))
+  #theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+ggsave("20220930gdpcropgroupchemclass_gdp25a.jpeg", height = 8, width = 12)
+
+
+
+#per crop class all regressions
+re_cropchemical %>%
+  filter(name_cropgroup == "Cereals") %>%
+  #filter(name_cropgroup %in% quadraticcropgroupchemclass$name_cropgroup) %>%
+  #filter(name_chemclass %in% quadraticcropgroupchemclass$name_chemclass) %>%
+  mutate(climatezone = case_when(climate_zone == "A" ~ "A tropical",
+                                 climate_zone == "B" ~ "B dry",
+                                 climate_zone == "C" ~ "C temperate",
+                                 climate_zone == "D" ~ "D continental",
+                                 climate_zone == "E" ~ "E polar")) %>%
+  #filter(wd>0.1) %>% 
+  filter(name_country != "Venezuela") %>%
+  ggplot(aes(x = gdp, y = wd)) +
+  #geom_point(aes(color = climate_zone), size = 0.5) +
+  geom_point(aes(color = climatezone), size = 2) +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+  #stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2)) +
+  scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+  geom_smooth(method='lm', color = "dark grey") +
+  #stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2))
+  stat_poly_eq(formula= y ~ x, aes(label = paste(after_stat(rr.label), 
+                                 after_stat(p.value.label), sep = "*\", \"*"))) +
+  #geom_smooth(color = "dark grey") +
+  #geom_errorbar(aes(ymin = mindose, ymax=  maxdose), width=0.5) +
+  facet_wrap( ~  name_chemclass1, scales = "free_y" ) +
+  theme_bw() #+ 
+  labs(title = paste0(cropgroup, "+", chemical, "+", count))
+  #theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+ggsave("20220930gdpcerealschemclass_gdp25a.jpeg", height = 8, width = 12)
+
+
+summary_95percentile <- re_cropchemical %>%
+  group_by(name_country) %>%
+  filter(name_cropgroup == "Vegetables&Melons") %>%
+  filter(name_chemclass == "polymer") %>%
+  filter(wd <= quantile(wd, 0.95) & wd >= quantile(wd, 0.05))
+summary_95percentile$latitude2 <- summary_95percentile$latitude ^2
+summary_95percentile$logwd <- log10(summary_95percentile$wd)
+quadraticModel <- lm(logwd ~ latitude + latitude2, data=summary_95percentile)
+summary(quadraticModel)
+summary_95percentile$logannualtemp <- log10(summary_95percentile$`annual temp`)
+annualtempModesl <- lm(logwd ~ hdi, data = summary_95percentile)
+summary(annualtempModesl)
+annualtemplogModel <- lm(logwd ~ log(hdi), data = summary_95percentile)
+summary(annualtemplogModel)
+
+summary_95percentile %>%
+  filter(name_cropgroup == "Vegetables&Melons") %>%
+  filter(name_chemclass == "polymer") %>%
+  mutate(climatezone = case_when(climate_zone == "A" ~ "A tropical",
+                                 climate_zone == "B" ~ "B dry",
+                                 climate_zone == "C" ~ "C temperate",
+                                 climate_zone == "D" ~ "D continental",
+                                 climate_zone == "E" ~ "E polar")) %>%
+  #filter(wd>0.1) %>% 
+  filter(name_country != "Venezuela") %>%
+  ggplot(aes(x = latitude, y = wd)) +
+  #geom_point(aes(color = climate_zone), size = 0.5) +
+  geom_point(aes(color = climatezone), size = 2) +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #geom_smooth(method='lm', color = "dark grey") +
+  stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2))
+
+ggsave(filename = "20220427_mintempcropgrouplog.png", width = 10, height = 10)
+
+re_cropchemical_c <- re_cropchemical %>%
+  filter(name_crop_earthstat == "rapeseed") #%>%
+  filter(wd < 0.3)
+
+re_cropchemical_c %>%
+  ggplot(aes(x = `annual temp`, y = wd)) +
+  geom_point(aes(color = name_region)) +
+  geom_smooth()
+
+
+
+
+# relation with two variables precip + logtemp, gam model, glm model, loess model
+re_cropchemical$logtemp <- log10(re_cropchemical$`annual temp`)
+re_cropchemical$precip <- re_cropchemical$`annual precipitation mm`
+fig <- plot_ly(x = re_cropchemical$logtemp, y = re_cropchemical$`annual precipitation mm`, z = as.numeric(re_cropchemical$logwd)) #%>% add_surface()
+
+
+mod <- gam(logwd ~ te(logtemp) + te(precip) + ti(logtemp, precip), data=re_cropchemical)
+mod <- glm(logwd ~ logtemp + precip, data = re_cropchemical)
+mod <- loess(logwd ~ logtemp*precip, data= re_cropchemical)
+summary(mod)
+with(summary(mod), 1 - deviance/null.deviance)
+print(mod)
+logtemp.seq <- seq(min(re_cropchemical$logtemp, na.rm = TRUE), max(re_cropchemical$logtemp, na.rm=TRUE), length=25)
+precip.seq <- seq(min(re_cropchemical$precip, na.rm=TRUE), max(re_cropchemical$precip, na.rm=TRUE), length=25)
+predfun <- function(x,y){
+  newdat <- data.frame(precip = x, logtemp=y)
+  predict(mod, newdata=newdat)
+}
+
+fit <- outer(precip.seq, logtemp.seq, Vectorize(predfun))
+
+fig <- plot_ly() %>% 
+  add_markers(x = ~re_cropchemical$precip, y=re_cropchemical$logtemp, z=re_cropchemical$logwd, size = 0.1) %>% 
+  add_surface(x = ~precip.seq, y = ~logtemp.seq, z = t(fit))
+fig
+htmlwidgets::saveWidget(fig, file = "20220901gamimage.html")
+orca(fig, "surface-plot.svg")
+
+
+#regression for only countries with one climate zone
+join_short_uni_ratio$climate_main <- substr(join_short_uni_ratio$layer_climate, 1, 1)
+countrycrop_climate <- join_short_uni_ratio %>%
+  group_by(name_cntr, variable) %>%
+  summarize(countclimate = n_distinct(climate_main), climate = list(unique(climate_main))) %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea (the Republic of)",
+                                  name_cntr == "Iran  (islamic Republic Of)" ~ "Iran (Islamic Republic of)",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, the United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~"United States of America",
+                                  name_cntr == "Republic Of Moldova" ~ "Moldova (the Republic of)",
+                                  TRUE ~ name_cntr))
+countrycrop_climate_agrowin <- summary_wdha %>%
+  left_join(countrycrop_climate, by = c("name_country", "name_crop_earthstat" = "variable")) %>%
+  filter(countclimate == 1)
+
+re_cropchemical <- countrycrop_climate_agrowin %>%
+  #filter(name_cropgroup == "Cereals") %>%
+  #filter(dose < 2) %>%
+  #filter(wd>0.1) %>%
+  #right_join(countrycount, by = c("name_crop_earthstat", "casrn_chemical")) %>%
+  #filter(casrn_chemical %in% chemicalmass$casrn_chemical) %>%
+  #filter(name_crop_earthstat %in% cropmass$name_crop_earthstat) %>%
+  left_join(annualtemp, by = c("name_country" = "name_country")) %>%
+  filter(!is.na(climate_zone)) #%>%
+  #filter(name_crop_earthstat == crop) %>%
+  #filter(name_cropgroup == cropgroup) %>%
+  #filter(name_indication == indication)
+  filter(casrn_chemical == chemical)
+  
+  re_cropchemical %>%
+    mutate(climatezone = case_when(climate_zone == "A" ~ "A tropical",
+                                 climate_zone == "B" ~ "B dry",
+                                 climate_zone == "C" ~ "C temperate",
+                                 climate_zone == "D" ~ "D continental",
+                                 climate_zone == "E" ~ "E polar")) %>%
+  #filter(wd>0.1) %>% 
+  filter(name_country != "Venezuela") %>%
+  ggplot(aes(x = `annual temp`, y = wd)) +
+  #geom_point(aes(color = climate_zone), size = 0.5) +
+  geom_point(aes(color = climatezone),size = 2) +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+  #stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2)) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #geom_smooth(method='lm', color = "dark grey") +
+  #stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2))
+  #stat_poly_eq(formula= log(y) ~ x, aes(label = paste(after_stat(rr.label), 
+                                 #after_stat(p.value.label), sep = "*\", \"*"))) +
+  #geom_smooth(color = "dark grey") +
+  #geom_errorbar(aes(ymin = mindose, ymax=  maxdose), width=0.5) +
+  facet_wrap( ~ name_cropgroup + name_chemclass, scales = "free_y" ) +
+  theme_bw()
+
+  ggsave("cropchemical_annualtemp1.jpeg", width = 100, height = 100, units = "cm")
+
+
+
+#per country/cropclass/chemclass an average dose applied and the regression
+summary_wdha_cropclasschemclass <- input_caschem %>%
+  group_by(name_country, name_region.y, name_chemclass1, name_cropgroup) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(areaperc = treated_area_kha/sumarea, variabilityweight = areaperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_region.y, name_chemclass1, name_cropgroup) %>%
+  summarize(wd = sum(normalizedweight * dose),summass = sum(applied_mass_kkg)) 
+
+re_cropchemical <- summary_wdha_cropclasschemclass %>%
+  left_join(annualtemp, by = c("name_country" = "name_country")) %>%
+  filter(!is.na(climate_zone))
+re_cropchemical %>%
+    mutate(climatezone = case_when(climate_zone == "A" ~ "A tropical",
+                                 climate_zone == "B" ~ "B dry",
+                                 climate_zone == "C" ~ "C temperate",
+                                 climate_zone == "D" ~ "D continental",
+                                 climate_zone == "E" ~ "E polar")) %>%
+  #filter(wd>0.1) %>% 
+  filter(name_country != "Venezuela") %>%
+  ggplot(aes(x = wd, y = `chemfull/agri`)) +
+  #geom_point(aes(color = climate_zone), size = 0.5) +
+  geom_point(aes(color = name_region.y),size = 2) +
+  #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2)) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  geom_smooth(method='lm', color = "dark grey") +
+  #stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2))
+  #stat_poly_eq(formula= y ~ x, aes(label = paste(after_stat(rr.label), 
+                                 #after_stat(p.value.label), sep = "*\", \"*"))) +
+  #geom_smooth(color = "dark grey") +
+  #geom_errorbar(aes(ymin = mindose, ymax=  maxdose), width=0.5) +
+  facet_wrap( ~ name_cropgroup + name_chemclass1, scales = "free_y" ) +
+  theme_bw()
+ggsave("20221012regression_wdperpoint.jpeg", height = 20, width = 20, units = "cm")
+
+re_cropchemical$logwd <- log10(re_cropchemical$wd)
+re_cropchemical$temp2 <- (re_cropchemical$`minimum temp`)^2
+mod <- lm(log(summass) ~  `annual temp` + temp2, data = re_cropchemical)
+summary(mod)
+
+
+#per country an average dose applied and the regression
+summary_wdha_country <- input_caschem %>%
+  filter(dose_kgperha < 100) %>%
+  group_by(name_country, name_region.y) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(areaperc = treated_area_kha/sumarea, variabilityweight = areaperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_region.y) %>%
+  summarize(wd = sum(normalizedweight * dose),summass = sum(applied_mass_kkg), countchem = n_distinct(casrn_chemical), countcrop = n_distinct(name_crop_earthstat)) 
+
+
+country_cropcount <- join_short_country_uni_ratio %>%
+  filter(score !=0) %>%
+  group_by(name_cntr) %>%
+  summarize(cropcount_spam = n_distinct(variable))
+
+
+country_chemcount_indication <- input_caschem %>%
+  group_by(name_country, name_activeindication) %>%
+  summarize(chemcount = n_distinct(casrn_chemical))
+
+country_chemcount_indication_wide <- spread(country_chemcount_indication, key = name_activeindication, value = chemcount)
+
+country_cropcount_cropclass <- input_caschem %>%
+  group_by(name_country, name_cropgroup) %>%
+  summarize(cropcount = n_distinct(name_crop_earthstat))
+
+
+
+country_cropcount_cropclass_wide <- spread(country_cropcount_cropclass, key = name_cropgroup, value = cropcount)
+
+re_cropchemical <- summary_wdha_country %>%
+  left_join(country_cropcount, by = c("name_country" = "name_cntr")) %>%
+  left_join(country_chemcount_indication_wide, by = c("name_country")) %>%
+  left_join(country_cropcount_cropclass_wide, by = c("name_country")) %>%
+  left_join(annualtemp, by = c("name_country" = "name_country")) %>%
+  left_join(country.continent.agriexport, by = c("name_country"))
+  filter(!is.na(climate_zone))
+write.csv(re_cropchemical, "re_cropchemical.csv")
+
+country.continent.agriexport <- read_xlsx("C:/me/Database/harmonization/no.country.continent.xlsx", sheet = 1)
+
+re_cropchemical <- 
+
+re_cropchemical <- summary_wdha_country %>%
+  left_join(annualtemp, by = c("name_country" = "name_country")) %>%
+  filter(!is.na(climate_zone))
+re_cropchemical %>%
+    mutate(climatezone = case_when(climate_zone == "A" ~ "A tropical",
+                                 climate_zone == "B" ~ "B dry",
+                                 climate_zone == "C" ~ "C temperate",
+                                 climate_zone == "D" ~ "D continental",
+                                 climate_zone == "E" ~ "E polar")) %>%
+  #filter(wd>0.1) %>% 
+  filter(name_country != "Venezuela") %>%
+  ggplot(aes(x = `export_value_1000$`, y = summass, size = gdp)) +
+  #geom_point(aes(color = climate_zone), size = 0.5) +
+  geom_point(aes(color = name_region.y)) +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+  #stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2)) +
+  scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+  geom_smooth(method='lm', color = "dark grey") +
+  #stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2)) +
+  stat_poly_eq(formula= y ~ x, aes(label = paste(after_stat(rr.label), 
+                                 after_stat(p.value.label), sep = "*\", \"*"))) +
+  scale_color_brewer(palette = "Set3") +
+  #geom_smooth(color = "dark grey") +
+  #geom_errorbar(aes(ymin = mindose, ymax=  maxdose), width=0.5) +
+  #facet_wrap( ~ name_cropgroup + name_chemclass, scales = "free_y" ) +
+  theme_bw()
+
+re_cropchemical$logwd <- log10(re_cropchemical$wd)
+re_cropchemical$temp2 <- (re_cropchemical$`minimum temp`)^2
+mod <- lm(log(summass) ~  `annual temp` + temp2, data = re_cropchemical)
+summary(mod)
+
+
+#per country year an average dose, comparing to FDI per year
+year <- 2020
+summary_wdha_country_year <- input_caschem %>%
+  #filter(Year == year) %>%
+  filter(dose_kgperha < 100) %>%
+  group_by(name_country, name_region.y, Year) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(areaperc = treated_area_kha/sumarea, variabilityweight = areaperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_region.y, Year) %>%
+  summarize(wd = sum(normalizedweight * dose),summass = sum(applied_mass_kkg), countchem = n_distinct(casrn_chemical), countcrop = n_distinct(name_crop_earthstat))
+
+country_cropcount <- join_short_country_uni_ratio %>%
+  filter(score !=0) %>%
+  group_by(name_cntr) %>%
+  summarize(cropcount_spam = n_distinct(variable))
+
+
+country_chemcount_indication <- input_caschem %>%
+  #filter(Year == year) %>%
+  group_by(name_country, name_activeindication, Year) %>%
+  summarize(chemcount = n_distinct(casrn_chemical))
+
+country_chemcount_indication_wide <- spread(country_chemcount_indication, key = name_activeindication, value = chemcount)
+
+country_cropcount_cropclass <- input_caschem %>%
+  #filter(Year == year) %>%
+  group_by(name_country, name_cropgroup, Year) %>%
+  summarize(cropcount = n_distinct(name_crop_earthstat))
+
+country_cropcount_cropclass_wide <- spread(country_cropcount_cropclass, key = name_cropgroup, value = cropcount)
+
+
+re_cropchemical_year <- summary_wdha_country_year %>%
+  left_join(country_cropcount, by = c("name_country" = "name_cntr")) %>%
+  left_join(country_chemcount_indication_wide, by = c("name_country", "Year")) %>%
+  left_join(country_cropcount_cropclass_wide, by = c("name_country", "Year")) %>%
+  left_join(annualtemp, by = c("name_country" = "name_country")) #%>%
+  #mutate(summass2020 = summass, chemcount2020 = countchem, cropcount2020 = countcrop) %>%
+  #select(name_country, name_region.y, summass2020, chemcount2020, cropcount2020)
+  left_join(country.continent.agriexport, by = c("name_country"))
+  filter(!is.na(climate_zone))
+  
+FDI <- country.continent.agriexport %>%
+  select(name_country, FDI2016, FDI2017, FDI2018, FDI2019, FDI2020)
+FDI_long <- gather(FDI, Year, FDI, FDI2016:FDI2020, factor_key=TRUE)
+FDI_long <- FDI_long %>%
+  mutate(Year = substr(Year, 4,8)) %>%
+  mutate(Year = as.numeric(Year))
+
+re_cropchemical_year_FDI <- re_cropchemical_year %>%
+  left_join(FDI_long, by = c("name_country", "Year"))
+  
+write.csv(re_cropchemical, "re_cropchemical.csv")
+
+re_cropchemical_year_FDI %>%
+  #filter(name_country == "Ethiopia") %>%
+  mutate(Year = as.factor(Year)) %>%
+  filter(Year == "2020") %>%
+  ggplot(aes(x = `annual temp`, y = wd, color = name_region.y)) +
+  geom_point() +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  geom_smooth(method='lm', aes(color = name_region.y)) +
+  #stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2)) +
+  stat_poly_eq(formula= y ~ x, aes(label = paste(after_stat(rr.label), 
+                                 after_stat(p.value.label), sep = "*\", \"*"))) +
+  scale_color_brewer(palette = "Set2") +
+  #geom_smooth(color = "dark grey") +
+  #geom_errorbar(aes(ymin = mindose, ymax=  maxdose), width=0.5) +
+  #facet_wrap( ~ name_cropgroup + name_chemclass, scales = "free_y" ) +
+  theme_bw()
+  #facet_wrap(~name_country, scales = "free")
+
+ggsave("20221102FDI_year_wd.jpeg", height = 30, width = 30, units = "cm")
+
+country.continent.agriexport <- read_xlsx("C:/me/Database/harmonization/no.country.continent.xlsx", sheet = 1)
+
+re_cropchemical %>%
+    mutate(climatezone = case_when(climate_zone == "A" ~ "A tropical",
+                                 climate_zone == "B" ~ "B dry",
+                                 climate_zone == "C" ~ "C temperate",
+                                 climate_zone == "D" ~ "D continental",
+                                 climate_zone == "E" ~ "E polar")) %>%
+  #filter(wd>0.1) %>% 
+  filter(name_country != "Venezuela") %>%
+  ggplot(aes(x = FDI2016 * gdp, y = wd, size = gdp)) +
+  #geom_point(aes(color = climate_zone), size = 0.5) +
+  geom_point(aes(color = name_region.y)) +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+  #stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2)) +
+  scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+  geom_smooth(method='lm', color = "dark grey") +
+  #stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2)) +
+  stat_poly_eq(formula= y ~ x, aes(label = paste(after_stat(rr.label), 
+                                 after_stat(p.value.label), sep = "*\", \"*"))) +
+  scale_color_brewer(palette = "Set3") +
+  #geom_smooth(color = "dark grey") +
+  #geom_errorbar(aes(ymin = mindose, ymax=  maxdose), width=0.5) +
+  #facet_wrap( ~ name_cropgroup + name_chemclass, scales = "free_y" ) +
+  theme_bw()
+
+#per country/cropclass/indication an average dose applied and the regression
+summary_wdha_cropclasschemclass <- input_caschem %>%
+  mutate(name_activeindication= str_remove(name_activeindication, "-ACTIV")) %>%
+  group_by(name_country, name_region.y, name_activeindication) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(massperc = treated_area_kha/sumarea, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_region.y, name_activeindication, name_cropgroup) %>%
+  summarize(wd = sum(normalizedweight * dose),summass = sum(applied_mass_kkg)) 
+
+re_cropchemical <- summary_wdha_cropclasschemclass %>%
+  left_join(annualtemp, by = c("name_country" = "name_country")) %>%
+  filter(!is.na(climate_zone))
+re_cropchemical %>%
+  filter(name_activeindication != "RODENTICIDES") %>%
+  mutate(climatezone = case_when(climate_zone == "A" ~ "A tropical",
+                                 climate_zone == "B" ~ "B dry",
+                                 climate_zone == "C" ~ "C temperate",
+                                 climate_zone == "D" ~ "D continental",
+                                 climate_zone == "E" ~ "E polar")) %>%
+  #filter(wd>0.1) %>% 
+  filter(name_country != "Venezuela") %>%
+  ggplot(aes(x = `chemfull/agri`, y = wd)) +
+  #geom_point(aes(color = climate_zone), size = 0.5) +
+  geom_point(aes(color = name_region.y),size = 2) +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+  #stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2)) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  geom_smooth(method='lm', color = "dark grey") +
+  #stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2))
+  stat_poly_eq(formula= y ~ x, aes(label = paste(after_stat(rr.label), 
+                                after_stat(p.value.label), sep = "*\", \"*"))) +
+  #geom_smooth(color = "dark grey") +
+  #geom_errorbar(aes(ymin = mindose, ymax=  maxdose), width=0.5) +
+  facet_grid( name_cropgroup ~ name_activeindication, scales = "free_y" ) +
+  scale_color_brewer(palette = "Set3") +
+  theme_bw()
+ggsave("20220930minimumtemp1_wdperindicationcropclass.jpeg", height = 20, width = 25, units = "cm")
+
+re_cropchemical$logwd <- log10(re_cropchemical$wd)
+re_cropchemical$temp2 <- (re_cropchemical$`minimum temp`)^2
+re_cropchemical$massperhectarepercapita <- re_cropchemical$massperhectare*re_cropchemical$gdppercapita/re_cropchemical$gdp
+mod <- lm(log(massperhectare) ~  log(gdp), data = re_cropchemical)
+summary(mod)
+
+#per country an average dose applied and the regression, adding agriculture hectare
+country_croparea <- join_short_uni_ratio %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea (the Republic of)",
+                                  name_cntr == "Iran  (islamic Republic Of)" ~ "Iran (Islamic Republic of)",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, the United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~"United States of America",
+                                  name_cntr == "Republic Of Moldova" ~ "Moldova (the Republic of)",
+                                  TRUE ~ name_cntr)) %>%
+  group_by(name_country) %>%
+  mutate(sumcroparea = sum(cropsumarea)) %>%
+  group_by(name_country, variable, sumcroparea) %>%
+  summarize(croparea = sum(cropsumarea), hdi = mean(HDI)) #%>%
+  mutate(ratio = croparea/sum(croparea))
+  
+summary_wdha_country <- input_caschem %>%
+  group_by(name_country, name_region.y) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(areaperc = treated_area_kha/sumarea, variabilityweight = areaperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_region.y) %>%
+  summarize(wd = sum(normalizedweight * dose),summass = sum(applied_mass_kkg), n = n_distinct(casrn_chemical)) 
+
+re_cropchemical <- summary_wdha_country %>%
+  left_join(annualtemp, by = c("name_country" = "name_country")) %>%
+  left_join(country_croparea, by = c("name_country" = "name_country")) %>%
+  mutate(croparea = as.numeric(croparea)) %>%
+  mutate(cropland_fao = as.numeric(cropland_fao)) %>%
+  filter(!is.na(climate_zone)) %>%
+  mutate(croplandratio = as.numeric(croparea)/1000/as.numeric(cropland_fao)) %>%
+  mutate(massperhectare = summass * 1000/croparea) %>%
+  mutate(massperhectare_fao = summass * 1000/cropland_fao) %>%
+  mutate(gdpagri = gdp * agri_gdp/100)
+write.csv(re_cropchemical, "20221003country_dosemass.csv")
+re_cropchemical %>%
+    mutate(climatezone = case_when(climate_zone == "A" ~ "A tropical",
+                                 climate_zone == "B" ~ "B dry",
+                                 climate_zone == "C" ~ "C temperate",
+                                 climate_zone == "D" ~ "D continental",
+                                 climate_zone == "E" ~ "E polar")) %>%
+  #filter(wd>0.1) %>% 
+  filter(name_country != "Venezuela") %>%
+  ggplot(aes(x = hdi.y, y = massperhectare, size = agri_gdp)) +
+  #geom_point(aes(color = climate_zone), size = 0.5) +
+  geom_point(aes(color = name_region.y),size = 2) +
+  #geom_point(aes(color = name_region.y)) +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+  #stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2)) +
+  scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+  geom_smooth(method='lm', color = "dark grey") +
+  #stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2))
+  stat_poly_eq(formula= y ~ x, aes(label = paste(after_stat(rr.label), 
+                                 after_stat(p.value.label), sep = "*\", \"*"))) +
+  #geom_smooth(color = "dark grey") +
+  #geom_errorbar(aes(ymin = mindose, ymax=  maxdose), width=0.5) +
+  #facet_wrap( ~ name_cropgroup + name_chemclass, scales = "free_y" ) +
+  scale_color_brewer(palette = "Set3") +
+  theme_bw()
+
+
+re_cropchemical %>%
+  #filter(name_country == "Ethiopia") %>%
+  #mutate(Year = as.factor(Year)) %>%
+  #filter(Year == "2020") %>%
+  filter(summass > 40) %>%
+  mutate(climatezone = case_when(climate_zone == "A" ~ "A tropical",
+                                 climate_zone == "B" ~ "B dry",
+                                 climate_zone == "C" ~ "C temperate",
+                                 climate_zone == "D" ~ "D continental",
+                                 climate_zone == "E" ~ "E polar")) %>%
+  filter(!is.na(climatezone)) %>%
+  ggplot(aes(x = export_agriraw, y = summass, color = name_region.y)) +
+  geom_point() +
+  scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+  geom_smooth(method='lm', aes(color = name_region.y)) +
+  #stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2)) +
+  stat_poly_eq(formula= y ~ x, aes(label = paste(after_stat(rr.label), 
+                                 after_stat(p.value.label), sep = "*\", \"*"))) +
+  scale_color_brewer(palette = "Set2") +
+  #geom_smooth(color = "dark grey") +
+  #geom_errorbar(aes(ymin = mindose, ymax=  maxdose), width=0.5) +
+  #facet_wrap( ~ name_cropgroup + name_chemclass, scales = "free_y" ) +
+  theme_bw()
+  #facet_wrap(~name_country, scales = "free")
+
+write.csv(re_cropchemical, "20221107re_cropchemical.csv")
+```
+
+#check multiple sources
+```{r}
+export_2020 <- read_xlsx("C:/me/map//cropmap/FAOSTAT_export_2020.xlsx", sheet = 1)
+itemtocrop <- read_xlsx("C:/me/map//cropmap/FAOSTAT_export_2020.xlsx", sheet = 2)
+areatocountry <- read_xlsx("C:/me/map//cropmap/FAOSTAT_export_2020.xlsx", sheet = 3)
+
+export_2020_countrycrop <- export_2020 %>%
+  left_join(itemtocrop, by = c("Item")) %>%
+  left_join(areatocountry, by = c("Area")) %>%
+  #filter(raw == "raw") %>%
+  filter(!is.na(Value)) %>%
+  filter(!is.na(raw)) %>%
+  filter(!is.na(name_country)) %>%
+  filter(Unit == "1000 US$") %>%
+  group_by(name_country, name_crop_earthstat) %>%
+  summarize(sumvalue = sum(Value, na.rm = TRUE))
+
+
+summary_wdha_countrycrop <- input_caschem %>%
+  group_by(name_country, name_region.y, name_crop_earthstat, name_cropgroup) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(areaperc = treated_area_kha/sumarea, variabilityweight = areaperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_region.y, name_crop_earthstat, name_cropgroup) %>%
+  summarize(wd = sum(normalizedweight * dose),summass = sum(applied_mass_kkg), n = n_distinct(casrn_chemical), sumarea = sum(treated_area_kha)) 
+
+re_cropchemical <- summary_wdha_countrycrop %>%
+  left_join(country_cropcount, by = c("name_country" = "name_cntr")) %>%
+  left_join(country_chemcount_indication_wide, by = c("name_country")) %>%
+  left_join(country_cropcount_cropclass_wide, by = c("name_country")) %>%
+  left_join(annualtemp, by = c("name_country" = "name_country")) %>%
+  left_join(country.continent.agriexport, by = c("name_country")) %>%
+  left_join(export_2020_countrycrop, by = c("name_country", "name_crop_earthstat"))
+  filter(!is.na(climate_zone))
+
+re_cropchemical <- re_cropchemical %>%
+  group_by(name_cropgroup, name_country, name_region.y, climate_zone) %>%
+  summarize(summass = sum(summass), exportvalue = sum(sumvalue, na.rm = TRUE), gdp= mean(gdp), agri = mean(agri_gdp), export_agriraw = mean(export_agriraw), wd = sum(summass)/sum(sumarea)) %>%
+  filter(exportvalue != 0)
+  
+re_cropchemical <- re_cropchemical %>%
+  group_by(name_country, name_region.y, climate_zone) %>%
+  summarize(summass = sum(summass), wd = sum(summass)/sum(sumarea),exportvalue = sum(sumvalue, na.rm = TRUE), gdp= mean(gdp), agri = mean(agri_gdp), export_agriraw = mean(export_agriraw))
+
+re_cropchemical %>%
+  #filter(name_country == "Ethiopia") %>%
+  #mutate(Year = as.factor(Year)) %>%
+  #filter(Year == "2020") %>%
+  #filter(summass > 50) %>%
+  filter(name_region.y != "Oceania") %>%
+  filter(name_cropgroup != "OtherCrops") %>%
+  mutate(climatezone = case_when(climate_zone == "A" ~ "A tropical",
+                                 climate_zone == "B" ~ "B dry",
+                                 climate_zone == "C" ~ "C temperate",
+                                 climate_zone == "D" ~ "D continental",
+                                 climate_zone == "E" ~ "E polar")) %>%
+  filter(!is.na(climatezone)) %>%
+  ggplot(aes(x = exportvalue, y = summass, color = name_region.y)) +
+  #ggplot(aes(x = exportvalue, y = summass)) +
+  geom_point(aes(color = name_region.y)) +
+  scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  geom_smooth(method='lm', aes(color = name_region.y)) +
+  #geom_smooth(method='lm', level = 0.95) +
+  #stat_smooth(aes(y=wd), method = "lm", formula = y ~ x + I(x^2)) +
+  stat_poly_eq(formula= y ~ x, aes(label = paste(after_stat(rr.label), 
+                                 after_stat(p.value.label), sep = "*\", \"*"))) +
+  scale_color_brewer(palette = "Set2") +
+  #geom_smooth(color = "dark grey") +
+  #geom_errorbar(aes(ymin = mindose, ymax=  maxdose), width=0.5) +
+  #facet_wrap( ~ name_cropgroup + name_chemclass, scales = "free_y" ) +
+  theme_bw() +
+  facet_grid(name_region.y~name_cropgroup, scales = "free")
+  
+write.csv(export_2020_country, "20221107export_2020_country_tonnes.csv")
+```
+

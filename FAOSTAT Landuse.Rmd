@@ -1,0 +1,125 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = T, results = "hide")
+library(knitr)
+library(rlang)
+library(tidyverse)
+library(readxl)
+library(docxtools)
+library(data.table)
+library(dplyr)
+library(purrr)
+library(tidyr)
+library(lubridate) 
+library(ggplot2)
+library(scales)
+library(gridExtra)
+library(ggthemes)
+library(viridis)
+library(knitr)
+library(reshape2)
+library(ggQC)
+library(kableExtra)
+library(tibble)
+library(colorspace)
+```
+
+```{r, include = FALSE}
+FAOdata <- read_excel("FAOSTAT_data_6-30-2022.xlsx")
+```
+
+Select needed elements
+```{r}
+FAOdata <- FAOdata %>%
+  select(Area, Item, Year, Value, Flag, `Flag Description`) %>%
+  filter(Item != "Country area")
+
+
+summary(FAOdata)
+```
+
+
+
+Country area table
+```{r}
+LandArea2 <- FAOdata %>%
+  filter(Item == "Land area") %>%
+  group_by(Area) %>%
+  summarise(min = min(Value), max = max(Value), avg = mean(Value))
+```
+
+#See unequal countries
+```{r}
+#LandArea2 <- LandArea2 %>%
+  #filter(min != max | min != avg | max != avg) %>%
+  
+
+```
+
+```{r}
+LandArea <- FAOdata %>%
+  filter(Item == "Land area") %>%
+  select("Area", "Year", "Value")
+```
+
+
+join land area
+```{r}
+LandUse2 <- merge(x = FAOdata, y = LandArea2, by.x = "Area", by.y = "Area", all.x = TRUE)
+```
+
+```{r}
+LandUse <- merge(x = FAOdata, y = LandArea, by = c("Area", "Year"), all.x = TRUE)
+```
+
+```{r}
+LandUse_sp <- dcast(LandUse,  Area + Year ~ Item, value.var = "Value.x", fill = 0)
+```
+
+```{r}
+LandFrac_sp <- LandUse_sp %>%
+  mutate(Total = `Land area` + `Inland waters`) %>%
+  mutate(frac_water = `Inland waters`/Total) %>%
+  mutate(frac_agr = Cropland/Total) %>%
+  mutate(frac_nat = 1 - frac_water - frac_agr)
+```
+
+```{r}
+LandFrac_2018 <- LandFrac_sp %>%
+  filter(Year == "2018")
+```
+
+
+```{r}
+write.csv(LandFrac_sp, "20220630FAOSTAT_Landuse.csv", row.names = FALSE)
+```
+
+
+```{r}
+faocopernicus <- read_xlsx("C:/me/FAOSTAT Landuse/Copernicus global landcover Fractions. V2.xlsx", sheet = 2)
+faocopernicus <- faocopernicus %>%
+  mutate(copernicus_natsoil = `Natural soil`/100, copernicus_agrsoil = `Agricultural Soil`/100, copernicus_surfacewater = `Surface water`/100, fao_natsoil = `Natural land`, fao_agrsoil = `Agricultural land`, fao_surfacewater = `Inland waters`) %>%
+  select(Country, copernicus_natsoil, copernicus_agrsoil, copernicus_surfacewater, fao_natsoil,fao_agrsoil, fao_surfacewater)
+faocopernicus_long <- melt(faocopernicus, id.vars=c("Country"))
+faocopernicus_long <- faocopernicus_long %>%
+  mutate(source = sub("\\_.*", "", variable)) %>%
+  mutate(compartment = sub(".*\\_", "", variable))
+faocopernicus_long %>%
+  #slice(1:25) %>%
+  ggplot(aes(fill = compartment, y = value, x = source)) +
+  geom_bar(position="stack", stat="identity") +
+  scale_fill_viridis(discrete = T, option = "B") +
+  ggtitle("comparison for land use") +
+  facet_wrap(~Country) +
+  coord_flip() +
+  #theme_ipsum() +
+  #theme(legend.position="none") +
+  theme(text = element_text(size = 20))+
+  xlab("")
+ggsave("20220628faocopernicus.png", width = 80, height = 80, units = "cm")
+```
+

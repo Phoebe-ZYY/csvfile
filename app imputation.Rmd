@@ -1,0 +1,3373 @@
+---
+title: "app imputation"
+output: html_notebook
+---
+
+```{r}
+summary(input2016_app)
+summary(input2017_app)
+summary(input2018_app)
+summary(input2019_app)
+summary(input2020_app)
+input_app <- rbind(input2016_app, input2017_app, input2018_app, input2019_app, input2020_app)
+summary(input_app)
+```
+
+#clean dataset
+```{r}
+#clean dose > 100, Spain & Venezuela cases
+input_app <- input_app %>%
+  filter(dose_kgperha < 1000) 
+summary(input_cas)
+#clean area or mass < 0
+input_app <- input_app %>%
+  filter(treated_area_kha > 0.000) %>%
+  filter(applied_mass_kkg > 0.000)
+```
+
+```{r}
+#filter unspecific chemicals
+input_app <- input_app %>%
+  filter(casrn_chemical != "NAME") #1463580
+```
+
+
+#using input_caschem or input_source(already treated)
+```{r}
+harmonization_treatment <- read_xlsx("C:/me/Database/harmonization/harmonization_treatment.xlsx", sheet = 1)
+input_caschem <- input_caschem %>%
+  select(-bbch_specific, -name_refapp) %>%
+  left_join(harmonization_treatment, by = c("name_indication", "name_activeindication", "name_stagegroup", "name_cropstage", "name_app"))
+input_appbbch <- input_caschem %>%
+  mutate(bbch_YN = case_when(name_cropstage == "9999-UNDEFINED" ~ "NO",
+                                 TRUE ~ "YES")) %>%
+  mutate(application_YN = case_when(name_refapp_adj == "undefined" ~ "NO",
+                                    TRUE ~ "YES")) %>%
+  mutate(treatment_YN = case_when(treatment == "undefined" ~ "NO",
+                                  TRUE ~ "YES"))
+
+
+
+table(input_appbbch$bbch_YN)
+table(input_appbbch$application_YN)
+table(input_appbbch$treatment_YN)
+```
+
+
+# dataset for bbch imputation
+```{r}
+#crop grouping different, using name_crop_earthstat or 'Short Name' in crop_id
+crop_id <- crop_spam %>%
+  left_join(spam_id, by = c("id_spam" = "ID")) %>%
+  select(`CROPNAME`, `Short Name`, name_group_yy)
+input_appbbch <- input_appbbch %>%
+  left_join(crop_id, by = c("name_crop_earthstat" = "CROPNAME"))
+input_appbbch_cropna <- input_appbbch %>%
+  filter(is.na(`Short Name`)) #forage crops exclude
+input_appbbch_cropnagroup <- input_appbbch_cropna %>%
+  group_by(name_crop_bayer, name_crop_earthstat) %>%
+  summarize(masssum = sum(applied_mass_kkg))
+sum(input_appbbch_cropna$applied_mass_kkg)/sum(input_appbbch$applied_mass_kkg)
+bbch_imputation <- input_appbbch %>%
+  filter(bbch_YN == "YES") %>%
+  filter(!is.na(`Short Name`)) %>%
+  #left_join(harmonization_bbch, by = "name_cropstage") %>% #can remove when already implementing the clustered bbch groups
+  select(name_country, name_crop_earthstat, name_group_yy, name_ai, casrn_chemical, name_chemclass1, name_moagroup, name_activeindication, bbch_specific, name_cropstage, name_stagegroup, name_refapp, applied_mass_kkg, treated_area_kha, name_region.y) %>%
+  #mutate(bbch_cluster = case_when(treatment == "soil" ~ "soil",
+                                 # treatment == "seed" ~ "seed"
+                                  #TRUE ~ bbch_specific)) %>%
+ # group_by(name_country, name_crop_earthstat, name_cropgroup, name_ai, casrn_chemical, name_chemclass1, name_moagroup, name_indication, bbch_cluster) %>%
+  group_by(name_country, name_crop_earthstat, name_group_yy, name_ai, casrn_chemical, name_chemclass1, name_moagroup, name_activeindication, bbch_specific, name_region.y) %>%
+  summarize(count = n(), summass = sum(applied_mass_kkg, is.na = TRUE), sumarea = sum(treated_area_kha, is.na = TRUE)) %>%
+  filter(sumarea != 0) %>%
+  mutate(dose = summass/sumarea)
+
+#need to include other unknown bbchs
+bbch_imputation_n <- input_appbbch %>%
+  filter(bbch_YN == "NO") %>%
+  filter(!is.na(`Short Name`)) %>%
+  group_by(name_country, name_crop_earthstat, name_group_yy, name_ai, casrn_chemical, name_chemclass1, name_moagroup, name_activeindication, name_region.y) %>%
+  summarize(count = n(), summass = sum(applied_mass_kkg, is.na = TRUE), sumarea = sum(treated_area_kha, is.na = TRUE)) %>%
+  filter(sumarea != 0) %>%
+  mutate(dose = summass/sumarea)
+```
+
+
+# dataset for application method imputation
+```{r}
+application_imputation <- input_appbbch %>%
+  filter(application_YN == "YES") %>%
+  group_by(name_country, name_crop_earthstat, name_group_yy, name_ai, casrn_chemical, name_chemclass1, name_moagroup, name_activeindication, name_refapp_adj, name_region.y) %>%
+  summarize(count = n(), summass = sum(applied_mass_kkg, is.na = TRUE), sumarea = sum(treated_area_kha, is.na = TRUE)) %>%
+  filter(sumarea != 0) %>%
+  mutate(dose = summass/sumarea)
+
+application_imputation_n <- input_appbbch %>%
+  filter(application_YN == "NO") %>%
+  group_by(name_country, name_crop_earthstat, name_group_yy, name_ai, casrn_chemical, name_chemclass1, name_moagroup, name_activeindication, name_region.y) %>%
+  summarize(count = n(), summass = sum(applied_mass_kkg, is.na = TRUE), sumarea = sum(treated_area_kha, is.na = TRUE)) %>%
+  filter(sumarea != 0) %>%
+  mutate(dose = summass/sumarea)
+```
+
+# dataset for treatment type imputation
+```{r}
+treatment_imputation <- input_appbbch %>%
+  filter(treatment_YN == "YES") %>%
+  group_by(name_country, name_crop_earthstat, name_group_yy, name_ai, casrn_chemical, name_chemclass1, name_moagroup, name_activeindication, treatment, name_region.y) %>%
+  summarize(count = n(), summass = sum(applied_mass_kkg, is.na = TRUE), sumarea = sum(treated_area_kha, is.na = TRUE)) %>%
+  filter(sumarea != 0) %>%
+  mutate(dose = summass/sumarea)
+
+treatment_imputation_n <- input_appbbch %>%
+  filter(treatment_YN == "NO") %>%
+  group_by(name_country, name_crop_earthstat, name_group_yy, name_ai, casrn_chemical, name_chemclass1, name_moagroup, name_activeindication, name_region.y) %>%
+  summarize(count = n(), summass = sum(applied_mass_kkg, is.na = TRUE), sumarea = sum(treated_area_kha, is.na = TRUE)) %>%
+  filter(sumarea != 0) %>%
+  mutate(dose = summass/sumarea)
+```
+
+
+#climate level input parameters
+```{r}
+#join_short_uni <- read_csv("C:/me/map/cropmap/join_short_uni.csv")
+#join_short_uni_ratio <- read_csv("C:/me/map/cropmap/20220726join_short_uni_ratio.csv")
+join_short_uni_ratio <- read_csv("C:/me/map/cropmap/20221019join_short_uni_ratio.csv")
+join_short_uni <- join_short_uni_ratio %>%
+  filter(cropsumarea > 0)
+n_distinct(join_short_uni$name_cntr)
+
+ggplot(join_short_uni_ratio, aes(x = score)) +
+  geom_histogram() +
+  scale_x_log10()
+
+unique(join_short_uni$name_cntr)
+# join_short_uni <- join_short_uni %>%
+#   mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+#                                   name_cntr == "Republic Of Korea" ~ "Korea (the Republic of)",
+#                                   name_cntr == "Iran  (islamic Republic Of)" ~ "Iran (Islamic Republic of)",
+#                                   name_cntr == "United Republic Of Tanzania" ~ "Tanzania, the United Republic of",
+#                                   name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+#                                   name_cntr == "United States Of America" ~"United States of America",
+#                                   name_cntr == "Republic Of Moldova" ~ "Moldova (the Republic of)",
+#                                   TRUE ~ name_cntr)) 
+#join_short_uni <- join_short_uni %>%
+  #mutate(name_crop = str_remove(variable, "_a$")) %>%
+  #filter(!is.na(name_country))
+
+join_short_unig <- join_short_uni %>%
+  mutate(name_country = name_cntr) %>%
+  group_by(layer_climate, name_country, variable, score) %>%
+  summarise(HDI = mean(HDI, na.rm = TRUE), landevap = mean(landevap, na.rm = TRUE))
+
+#score_country <- join_short_unig %>%
+  #group_by(name_country, score, name_crop)%>%
+  #summarize(count = n())
+
+join_short_uni <- join_short_unig
+```
+
+#country level input dataset
+```{r}
+#join_short_uni <- read_csv("C:/me/map/cropmap/join_short_uni.csv")
+#join_short_uni_ratio <- read_csv("C:/me/map/cropmap/20220726join_short_uni_ratio.csv")
+join_short_country_uni_ratio <- read_csv("C:/me/map/cropmap/20221019join_short_country_uni_ratio.csv")
+join_short_country_uni <- join_short_country_uni_ratio %>%
+  filter(score!=0) %>%
+  mutate(name_country = name_cntr)
+#n_distinct(join_short_uni_ratio$name_cntr)
+
+# ggplot(join_short_uni_ratio, aes(x = score)) +
+#   geom_histogram() +
+#   scale_x_log10()
+
+unique(join_short_uni$name_cntr)
+# join_short_country_uni <- join_short_country_uni %>%
+#   mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+#                                   name_cntr == "Republic Of Korea" ~ "Korea (the Republic of)",
+#                                   name_cntr == "Iran  (islamic Republic Of)" ~ "Iran (Islamic Republic of)",
+#                                   name_cntr == "United Republic Of Tanzania" ~ "Tanzania, the United Republic of",
+#                                   name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+#                                   name_cntr == "United States Of America" ~"United States of America",
+#                                   name_cntr == "Republic Of Moldova" ~ "Moldova (the Republic of)",
+#                                   TRUE ~ name_cntr)) 
+#join_short_uni <- join_short_uni %>%
+  #mutate(name_crop = str_remove(variable, "_a$")) %>%
+  #filter(!is.na(name_country))
+
+join_short_country_unig <- join_short_country_uni %>%
+  group_by(name_country, variable, score) %>%
+  summarise(HDI = mean(HDI, na.rm = TRUE), landevap = mean(landevap, na.rm = TRUE))
+
+#score_country <- join_short_unig %>%
+  #group_by(name_country, score, name_crop)%>%
+  #summarize(count = n())
+
+join_short_country_uni <- join_short_country_unig
+```
+
+#imputation for bbch
+```{r}
+crop <- read_excel("C:/me/Database/harmonization/harmonization_crop.xlsx", sheet = 1)
+crop_spam <- read_excel("C:/me/Database/harmonization/Crop_Data.xlsx", sheet = 2)
+spam_id <- read_excel("C:/me/Database/harmonization/Crop_Data.xlsx", sheet = 3)
+
+crop_id <- crop_spam %>%
+  left_join(spam_id, by = c("id_spam" = "ID")) %>%
+  select(`CROPNAME`, `Short Name`)
+unique(crop_id$`Short Name`)
+
+# country_mass <- input_caschem %>%
+#   group_by(name_country, casrn_chemical, name_ai) %>%
+#   summarize(mass = sum(applied_mass_kkg))
+#write.csv(country_mass, "20221107countrychem_mass.csv")
+
+summary_wdhaother_spamcrop <- input_wdhaother %>%
+  left_join(crop_id, by = c("name_crop_earthstat" = "CROPNAME")) %>%
+  group_by(name_country, `Short Name`, casrn_chemical, name_region, name_chemclass) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(massperc = treated_area_kha/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, `Short Name`, casrn_chemical, summass, sumarea, name_region, name_chemclass, mindose, maxdose) %>%
+  #summarize(wd = sum(normalizedweight * dose))
+  summarize(wd = sum(applied_mass_kkg)/sum(treated_area_kha))
+
+write.csv(summary_wdhaother_spamcrop, "20220630summary_wdhaother_spamcrop.csv")
+
+bbch_imputation <- bbch_imputation %>%
+  left_join(crop_id, by = c("name_crop_earthstat" = "CROPNAME"))
+bbch_n_imputation <- bbch_imputation_n %>%
+  left_join(crop_id, by = c("name_crop_earthstat" = "CROPNAME"))
+
+#unique(join_cntr_uni_combi$name_country)
+#climate level imputation
+bbch_imputation_combi <- bbch_imputation %>%
+  left_join(join_short_uni, by = c("name_country" = "name_country", "name_crop_earthstat" = "variable")) %>%
+  select(-count) %>%
+  filter(!is.na(layer_climate)) # no fodder or forage in cropmap
+
+bbch_n_imputation_combi <- bbch_imputation_n %>%
+  left_join(join_short_uni, by = c("name_country" = "name_country", "name_crop_earthstat" = "variable")) %>%
+  select(-count) %>%
+  #filter(name_country != "Algeria") %>%
+  filter(!is.na(layer_climate))
+
+#country level imputation
+bbch_imputation_combi <- bbch_imputation %>%
+  left_join(join_short_country_uni, by = c("name_country" = "name_country", "name_crop_earthstat" = "variable")) %>%
+  select(-count) #%>%
+  #filter(!is.na(layer_climate)) # no fodder or forage in cropmap
+
+bbch_imputation_combi <- bbch_imputation_combi %>%
+  left_join(bbch_imputation_combi_check, by = c("name_country")) %>%
+  mutate(HDI = case_when(is.na(HDI) ~ HDI_avg,
+                         TRUE ~ HDI),
+         landevap = case_when(is.na(landevap) ~ landevap_avg,
+                              TRUE ~ landevap),
+         score = case_when(is.na(score) ~ score_avg,
+                           TRUE ~ score))%>%
+  select(-HDI_avg, -landevap_avg, -score_avg)
+
+bbch_imputation_combi_check <- join_short_country_uni %>%
+  group_by(name_country) %>%
+  summarize(HDI_avg = mean(HDI, na.rm = TRUE), landevap_avg = mean(landevap, na.rm = TRUE), score_avg = mean(score, na.rm = TRUE))
+
+# bbch_imputation_combi_na <- bbch_imputation_combi %>%
+#   filter(is.na(HDI)) %>%
+#   group_by(name_country, name_crop_earthstat) %>%
+#   summarize(count = n())
+
+
+bbch_n_imputation_combi <- bbch_imputation_n %>%
+  left_join(join_short_country_uni, by = c("name_country" = "name_country", "name_crop_earthstat" = "variable")) %>%
+  select(-count)# %>%
+
+bbch_n_imputation_combi <-bbch_n_imputation_combi %>%
+  left_join(bbch_imputation_combi_check, by = c("name_country")) %>%
+  mutate(HDI = case_when(is.na(HDI) ~ HDI_avg,
+                         TRUE ~ HDI),
+         landevap = case_when(is.na(landevap) ~ landevap_avg,
+                              TRUE ~ landevap),
+         score = case_when(is.na(score) ~ score_avg,
+                           TRUE ~ score)) %>%
+  select(-HDI_avg, -landevap_avg, -score_avg)
+  
+  #filter(name_country != "Algeria") %>%
+  #filter(!is.na(layer_climate))
+```
+
+#input dataset BBCH for conformal, both for country level and climate level
+```{r}
+#climate level
+bbch.list <- unique(bbch_imputation_combi$bbch_specific)
+i <- 1
+for(i in c(1:length(bbch.list))){
+  bbch<- bbch.list[i]
+  exist.dat <- bbch_imputation_combi %>%
+    filter(!is.na(HDI)) %>%
+    filter(!is.na(landevap)) %>%
+    group_by(score, name_region.y, name_crop_earthstat, name_group_yy, name_activeindication, layer_climate, HDI, landevap, name_chemclass1, name_moagroup, bbch_specific) %>%
+    summarize(count = n()) %>%
+    ungroup()
+  general.scenario <- exist.dat %>%
+    select(-bbch_cluster, -count) %>%
+    distinct()
+  present.dat <- exist.dat %>%
+    filter(bbch_cluster == bbch) %>%
+    select(-bbch_cluster, -count) %>%
+    distinct()
+  absent.dat <- general.scenario %>%
+    anti_join(present.dat, by = c("score","name_region.y", "name_crop_earthstat", "name_group_yy", "name_activeindication", "layer_climate", "HDI", "landevap", "name_chemclass1", "name_moagroup"))
+  present.dat$ChemPresent <- "Yes"
+  absent.dat$ChemPresent <- "No"
+  bbch.df <- as.data.table(rbind(present.dat, absent.dat))
+  
+  write.csv(bbch.df, paste0("20220810bbch_",bbch,".csv"))
+  print(i)
+}
+
+#country level
+bbch.list <- unique(bbch_imputation_combi$bbch_specific)
+i <- 1
+for(i in c(1:length(bbch.list))){
+  bbch<- bbch.list[i]
+  exist.dat <- bbch_imputation_combi %>%
+    filter(!is.na(HDI)) %>%
+    filter(!is.na(landevap)) %>%
+    group_by(score, name_region.y, name_crop_earthstat, name_group_yy, name_activeindication, HDI, landevap, name_chemclass1, name_moagroup, bbch_specific) %>%
+    summarize(count = n()) %>%
+    ungroup()
+  general.scenario <- exist.dat %>%
+    select(-bbch_specific, -count) %>%
+    distinct()
+  present.dat <- exist.dat %>%
+    filter(bbch_specific == bbch) %>%
+    select(-bbch_specific, -count) %>%
+    distinct()
+  absent.dat <- general.scenario %>%
+    anti_join(present.dat, by = c("score","name_region.y", "name_crop_earthstat", "name_group_yy", "name_activeindication", "HDI", "landevap", "name_chemclass1", "name_moagroup"))
+  present.dat$ChemPresent <- "Yes"
+  absent.dat$ChemPresent <- "No"
+  bbch.df <- as.data.table(rbind(present.dat, absent.dat))
+  
+  write.csv(bbch.df, paste0("20221110bbch_country",bbch,".csv"))
+  print(i)
+}
+```
+
+
+#imputation for application
+```{r}
+crop <- read_excel("C:/me/Database/harmonization/harmonization_crop.xlsx", sheet = 1)
+crop_spam <- read_excel("C:/me/Database/harmonization/Crop_Data.xlsx", sheet = 2)
+spam_id <- read_excel("C:/me/Database/harmonization/Crop_Data.xlsx", sheet = 3)
+
+crop_id <- crop_spam %>%
+  left_join(spam_id, by = c("id_spam" = "ID")) %>%
+  select(`CROPNAME`, `Short Name`)
+
+application_imputation <- application_imputation %>%
+  left_join(crop_id, by = c("name_crop_earthstat" = "CROPNAME"))
+application_n_imputation <- application_imputation_n %>%
+  left_join(crop_id, by = c("name_crop_earthstat" = "CROPNAME"))
+
+#unique(join_cntr_uni_combi$name_country)
+
+#climate level
+application_imputation_combi <- application_imputation %>%
+  left_join(join_short_uni, by = c("name_country" = "name_country", "name_crop_earthstat" = "variable")) %>%
+  select(-count) %>%
+  filter(!is.na(layer_climate)) # no fodder or forage in cropmap
+
+application_n_imputation_combi <- application_imputation_n %>%
+  left_join(join_short_uni, by = c("name_country" = "name_country", "name_crop_earthstat" = "variable")) %>%
+  select(-count) %>%
+  #filter(name_country != "Algeria") %>%
+  filter(!is.na(layer_climate))
+
+
+#country level
+app_imputation_combi_check <- join_short_country_uni %>%
+  group_by(name_country) %>%
+  summarize(HDI_avg = mean(HDI, na.rm = TRUE), landevap_avg = mean(landevap, na.rm = TRUE), score_avg = mean(score, na.rm = TRUE))
+
+application_imputation_combi <- application_imputation %>%
+  left_join(join_short_country_uni, by = c("name_country" = "name_country", "name_crop_earthstat" = "variable")) %>%
+  select(-count) #%>%
+  #filter(!is.na(layer_climate)) # no fodder or forage in cropmap
+
+application_imputation_combi <- application_imputation_combi %>%
+  left_join(app_imputation_combi_check, by = c("name_country")) %>%
+  mutate(HDI = case_when(is.na(HDI) ~ HDI_avg,
+                         TRUE ~ HDI),
+         landevap = case_when(is.na(landevap) ~ landevap_avg,
+                              TRUE ~ landevap),
+         score = case_when(is.na(score) ~ score_avg,
+                           TRUE ~ score)) %>%
+  select(-HDI_avg, -landevap_avg, -score_avg)
+
+application_n_imputation_combi <- application_imputation_n %>%
+  left_join(join_short_country_uni, by = c("name_country" = "name_country", "name_crop_earthstat" = "variable")) %>%
+  select(-count)# %>%
+  #filter(name_country != "Algeria") %>%
+  #filter(!is.na(layer_climate))
+unique(application_imputation_combi$name_chemclass1)
+
+
+application_n_imputation_combi <- application_n_imputation_combi %>%
+  left_join(app_imputation_combi_check, by = c("name_country")) %>%
+  mutate(HDI = case_when(is.na(HDI) ~ HDI_avg,
+                         TRUE ~ HDI),
+         landevap = case_when(is.na(landevap) ~ landevap_avg,
+                              TRUE ~ landevap),
+         score = case_when(is.na(score) ~ score_avg,
+                           TRUE ~ score)) %>%
+  select(-HDI_avg, -landevap_avg, -score_avg)
+
+write.csv(application_imputation_combi, "application_input_full.csv")
+write.csv(bbch_imputation_combi, "bbch_input_full.csv")
+write.csv(bbch_n_imputation_combi, "bbch_impute_specific.csv")
+unique(bbch_imputation_combi$bbch_original)
+```
+
+
+
+
+#input dataset application method for conformal
+```{r}
+#climate level
+app.list <- unique(application_imputation_combi$name_refapp)
+i <- 1
+for(i in c(1:length(app.list))){
+  app <- app.list[i]
+  exist.dat <- application_imputation_combi %>%
+    filter(!is.na(HDI)) %>%
+    filter(!is.na(landevap)) %>%
+    group_by(score, name_region.y, name_crop_earthstat, name_group_yy, name_indication, layer_climate, HDI, landevap, name_chemclass1, name_moagroup, name_refapp) %>%
+    summarize(count = n()) %>%
+    ungroup()
+  general.scenario <- exist.dat %>%
+    select(-name_refapp, -count) %>%
+    distinct()
+  present.dat <- exist.dat %>%
+    filter(name_refapp == app) %>%
+    select(-name_refapp, -count) %>%
+    distinct()
+  absent.dat <- general.scenario %>%
+    anti_join(present.dat, by = c("score", "name_region.y", "name_crop_earthstat", "name_group_yy", "name_indication", "layer_climate", "HDI", "landevap", "name_chemclass1", "name_moagroup"))
+  present.dat$ChemPresent <- "Yes"
+  absent.dat$ChemPresent <- "No"
+  app.df <- as.data.table(rbind(present.dat, absent.dat))
+  
+  write.csv(app.df, paste0("20220810app_",app,".csv"))
+  print(i)
+}
+
+
+#country level
+app.list <- unique(application_imputation_combi$name_refapp_adj)
+i <- 1
+for(i in c(1:length(app.list))){
+  app <- app.list[i]
+  exist.dat <- application_imputation_combi %>%
+    #filter(!is.na(HDI)) %>%
+    #filter(!is.na(landevap)) %>%
+    group_by(score, name_region.y, name_crop_earthstat, name_group_yy, name_activeindication, HDI, landevap, name_chemclass1, name_moagroup, name_refapp_adj) %>%
+    summarize(count = n()) %>%
+    ungroup()
+  general.scenario <- exist.dat %>%
+    select(-name_refapp_adj, -count) %>%
+    distinct()
+  present.dat <- exist.dat %>%
+    filter(name_refapp_adj == app) %>%
+    select(-name_refapp_adj, -count) %>%
+    distinct()
+  absent.dat <- general.scenario %>%
+    anti_join(present.dat, by = c("score", "name_region.y", "name_crop_earthstat", "name_group_yy", "name_activeindication", "HDI", "landevap", "name_chemclass1", "name_moagroup"))
+  present.dat$ChemPresent <- "Yes"
+  absent.dat$ChemPresent <- "No"
+  app.df <- as.data.table(rbind(present.dat, absent.dat))
+  
+  write.csv(app.df, paste0("20221110app_country",app,".csv"))
+  print(i)
+}
+
+app_full <- app_aerialapplication %>%
+  left_join(app_boomsprayer, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_indication", "layer_climate", "HDI", "landevap", "name_chemclass1", "name_moagroup")) %>%
+  left_join(app_tunnelsprayer, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_indication", "layer_climate", "HDI", "landevap", "name_chemclass1", "name_moagroup")) %>%
+  left_join(app_handoperatedsprayer, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_indication", "layer_climate", "HDI", "landevap", "name_chemclass1", "name_moagroup")) %>%
+  left_join(app_seedtreatment, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_indication", "layer_climate", "HDI", "landevap", "name_chemclass1", "name_moagroup")) %>%
+  left_join(app_soilincorporation, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_indication", "layer_climate", "HDI", "landevap", "name_chemclass1", "name_moagroup"))
+  
+```
+
+
+
+#imputation for treatment
+```{r}
+crop <- read_excel("C:/me/Database/harmonization/harmonization_crop.xlsx", sheet = 1)
+crop_spam <- read_excel("C:/me/Database/harmonization/Crop_Data.xlsx", sheet = 2)
+spam_id <- read_excel("C:/me/Database/harmonization/Crop_Data.xlsx", sheet = 3)
+
+crop_id <- crop_spam %>%
+  left_join(spam_id, by = c("id_spam" = "ID")) %>%
+  select(`CROPNAME`, `Short Name`)
+
+treatment_imputation <- treatment_imputation %>%
+  left_join(crop_id, by = c("name_crop_earthstat" = "CROPNAME"))
+treatment_n_imputation <- treatment_imputation_n %>%
+  left_join(crop_id, by = c("name_crop_earthstat" = "CROPNAME"))
+
+#unique(join_cntr_uni_combi$name_country)
+
+#climate level
+treatment_imputation_combi <- treatment_imputation %>%
+  left_join(join_short_uni, by = c("name_country" = "name_country", "name_crop_earthstat" = "variable")) %>%
+  select(-count) %>%
+  filter(!is.na(layer_climate)) # no fodder or forage in cropmap
+
+treatment_n_imputation_combi <- treatment_imputation_n %>%
+  left_join(join_short_uni, by = c("name_country" = "name_country", "name_crop_earthstat" = "variable")) %>%
+  select(-count) %>%
+  #filter(name_country != "Algeria") %>%
+  filter(!is.na(layer_climate))
+
+treatment_imputation_combi_check <- join_short_country_uni %>%
+  group_by(name_country) %>%
+  summarize(HDI_avg = mean(HDI, na.rm = TRUE), landevap_avg = mean(landevap, na.rm = TRUE), score_avg = mean(score, na.rm = TRUE))
+
+#country level
+treatment_imputation_combi <- treatment_imputation %>%
+  left_join(join_short_country_uni, by = c("name_country" = "name_country", "name_crop_earthstat" = "variable")) %>%
+  select(-count) #%>%
+  #filter(!is.na(layer_climate)) # no fodder or forage in cropmap
+
+treatment_n_imputation_combi <- treatment_imputation_n %>%
+  left_join(join_short_country_uni, by = c("name_country" = "name_country", "name_crop_earthstat" = "variable")) %>%
+  select(-count)# %>%
+  #filter(name_country != "Algeria") %>%
+  #filter(!is.na(layer_climate))
+
+treatment_n_imputation_combi <-treatment_n_imputation_combi %>%
+  left_join(treatment_imputation_combi_check, by = c("name_country")) %>%
+  mutate(HDI = case_when(is.na(HDI) ~ HDI_avg,
+                         TRUE ~ HDI),
+         landevap = case_when(is.na(landevap) ~ landevap_avg,
+                              TRUE ~ landevap),
+         score = case_when(is.na(score) ~ score_avg,
+                           TRUE ~ score)) %>%
+  mutate(HDI = case_when(name_country == "Turkmenistan" ~ 0.6888048,
+                        TRUE ~ HDI),
+         landevap = case_when(name_country == "Turkmenistan" ~ 13.72913,
+                              TRUE ~ landevap),
+         score = case_when(name_country == "Turkmenistan" ~ 2.982705e-03,
+                           TRUE ~ score)) %>%
+  select(-HDI_avg, -landevap_avg, -score_avg)
+unique(treatment_imputation_combi$name_chemclass1)
+
+write.csv(treatment_imputation_combi, "treatment_input_full.csv")
+write.csv(treatment_imputation_combi, "treatment_input_full.csv")
+write.csv(bbch_n_imputation_combi, "bbch_impute_specific.csv")
+unique(bbch_imputation_combi$bbch_original)
+```
+
+
+#input dataset treatment method for conformal
+```{r}
+#climate level
+treatment.list <- unique(treatment_imputation_combi$treatment)
+i <- 1
+for(i in c(1:length(app.list))){
+  app <- app.list[i]
+  exist.dat <- treatment_imputation_combi %>%
+    filter(!is.na(HDI)) %>%
+    filter(!is.na(landevap)) %>%
+    group_by(score, name_region.y, name_crop_earthstat, name_group_yy, name_indication, layer_climate, HDI, landevap, name_chemclass1, name_moagroup, treatment) %>%
+    summarize(count = n()) %>%
+    ungroup()
+  general.scenario <- exist.dat %>%
+    select(-treatment, -count) %>%
+    distinct()
+  present.dat <- exist.dat %>%
+    filter(treatment == app) %>%
+    select(treatment, -count) %>%
+    distinct()
+  absent.dat <- general.scenario %>%
+    anti_join(present.dat, by = c("score", "name_region.y", "name_crop_earthstat", "name_group_yy", "name_indication", "layer_climate", "HDI", "landevap", "name_chemclass1", "name_moagroup"))
+  present.dat$ChemPresent <- "Yes"
+  absent.dat$ChemPresent <- "No"
+  app.df <- as.data.table(rbind(present.dat, absent.dat))
+  
+  write.csv(app.df, paste0("20220810app_",app,".csv"))
+  print(i)
+}
+
+
+#country level
+treatment.list <- unique(treatment_imputation_combi$treatment)
+i <- 1
+for(i in c(1:length(treatment.list))){
+  treatment <- treatment.list[i]
+  exist.dat <- treatment_imputation_combi %>%
+    filter(!is.na(HDI)) %>%
+    filter(!is.na(landevap)) %>%
+    group_by(score, name_region.y, name_crop_earthstat, name_group_yy, name_activeindication, HDI, landevap, name_chemclass1, name_moagroup, treatment) %>%
+    summarize(count = n()) %>%
+    ungroup()
+  general.scenario <- exist.dat %>%
+    select(-treatment, -count) %>%
+    distinct()
+  present.dat <- exist.dat %>%
+    filter(treatment == treatment.list[i]) %>%
+    select(-treatment, -count) %>%
+    distinct()
+  absent.dat <- general.scenario %>%
+    anti_join(present.dat, by = c("score", "name_region.y", "name_crop_earthstat", "name_group_yy", "name_activeindication", "HDI", "landevap", "name_chemclass1", "name_moagroup"))
+  present.dat$ChemPresent <- "Yes"
+  absent.dat$ChemPresent <- "No"
+  app.df <- as.data.table(rbind(present.dat, absent.dat))
+  
+  write.csv(app.df, paste0("20221025treatment_country",treatment,".csv"))
+  print(i)
+}
+
+
+  
+```
+
+
+
+```{r}
+try <- read_xlsx("C:/Users/yuyzh/Desktop/Copy of subset.EC10.data.reshaped.xlsx", sheet = 2)
+library(tidyr)
+try_df <- try %>%
+  select(-c(variable, CAS_Harmonized)) %>%
+  spread(Harmonised_effect.type, Conc, fill = NA)
+```
+
+#other countries imputation
+```{r}
+summary_wdhaother
+crop <- read_excel("C:/me/Database/harmonization/harmonization_crop.xlsx", sheet = 1)
+crop_spam <- read_excel("C:/me/Database/harmonization/Crop_Data.xlsx", sheet = 2)
+spam_id <- read_excel("C:/me/Database/harmonization/Crop_Data.xlsx", sheet = 3)
+
+#add source score
+score <- 1
+#for crop treatment
+input_appbbch_other <- input_appbbch_applicationbbch %>%
+  filter(applicationgroup == "crop")
+summary_wdhaother <- input_appbbch_other %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, name_region.y, name_cropgroup, name_chemclass) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(massperc = treated_area_kha/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, summass, sumarea, name_region.y, name_cropgroup, name_chemclass, mindose, maxdose) %>%
+  summarize(wd = sum(normalizedweight * dose)) 
+  #summarize(wd2 = sum(applied_mass_kkg)/sum(treated_area_kha))
+
+crop_id <- crop_spam %>%
+  left_join(spam_id, by = c("id_spam" = "ID")) %>%
+  select(`CROPNAME`, `Short Name`, name_group_yy)
+
+country_imputation <- summary_wdhaother %>%
+  select(name_country, name_crop_earthstat, casrn_chemical, name_region.y, wd)
+country_imputation <- country_imputation %>%
+  left_join(crop_id, by = c("name_crop_earthstat" = "CROPNAME"))
+
+
+country_imputation_combi <- country_imputation %>%
+  left_join(join_short_uni, by = c("name_country" = "name_country", "name_crop_earthstat" = "variable")) %>%
+  select( -mindose, -summass, -sumarea) %>%
+  filter(!is.na(layer_climate)) # no fodder or forage in cropmap
+unique(country_imputation_combi$name_country)
+
+country_imputation_combi_n <- join_short_uni %>%
+  left_join(country_imputation, by = c("name_country" = "name_country", "variable" = "name_crop_earthstat")) %>%
+  select(-mindose, -summass, -sumarea) %>%
+  #filter(name_crop != "smil") %>%
+  #filter(name_crop != "cowp") %>%
+  #filter(name_crop != "rcof") %>%
+  #filter(name_crop != "cnut") %>%
+  filter(is.na(wd)) %>%
+  filter(!name_country %in% country_imputation_combi$name_country)
+unique(country_imputation_combi_n$name_country)
+country_imputation_combi_check <- country_imputation_combi_n %>%
+  group_by(name_country, name_crop) %>%
+  summarize(climatecount = n_distinct(layer_climate))
+
+unique(country_imputation_combi$`Short Name`)
+#write.csv(country_imputation_combi, "20220725country_input_full.csv")
+#write.csv(country_imputation_combi_n, "20220725country_input_n.csv")
+write.csv(country_imputation_combi, "20220824country_input_full.csv")
+write.csv(country_imputation_combi_n, "20220824country_input_n.csv")
+
+#for soil treatment
+input_appbbch_soil <- input_appbbch_applicationbbch %>%
+  filter(applicationgroup == "soil")
+summary_wdhasoil <- input_appbbch_soil %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, name_region.y, name_cropgroup, name_chemclass) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(massperc = treated_area_kha/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, summass, sumarea, name_region.y, name_cropgroup, name_chemclass, mindose, maxdose) %>%
+  summarize(wd = sum(normalizedweight * dose)) 
+  #summarize(wd2 = sum(applied_mass_kkg)/sum(treated_area_kha))
+
+country_imputationsoil <- summary_wdhasoil %>%
+  select(name_country, name_crop_earthstat, casrn_chemical, name_region.y, wd)
+country_imputationsoil <- country_imputationsoil %>%
+  left_join(crop_id, by = c("name_crop_earthstat" = "CROPNAME"))
+
+
+country_imputation_combisoil <- country_imputationsoil %>%
+  left_join(join_short_uni, by = c("name_country" = "name_country", "name_crop_earthstat" = "variable")) %>%
+  select( -mindose, -summass, -sumarea) %>%
+  filter(!is.na(layer_climate)) # no fodder or forage in cropmap
+unique(country_imputation_combisoil$name_country)
+
+country_imputation_combi_nsoil <- join_short_uni %>%
+  left_join(country_imputationsoil, by = c("name_country" = "name_country", "variable" = "name_crop_earthstat")) %>%
+  select(-mindose, -summass, -sumarea) %>%
+  #filter(name_crop != "smil") %>%
+  #filter(name_crop != "cowp") %>%
+  #filter(name_crop != "rcof") %>%
+  #filter(name_crop != "cnut") %>%
+  filter(is.na(wd)) %>%
+  filter(!name_country %in% country_imputation_combi$name_country)
+write.csv(country_imputation_combisoil, "20220908country_input_fullsoil.csv")
+write.csv(country_imputation_combi_nsoil, "20220908country_input_nsoil.csv")
+
+#for all treatment
+summary_wdha <- input_caschem %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, name_region.y, name_cropgroup, name_chemclass) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(areaperc = treated_area_kha/sumarea, variabilityweight = areaperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, summass, sumarea, name_region.y, name_cropgroup, name_chemclass, mindose, maxdose) %>%
+  summarize(wd = sum(normalizedweight * dose), count = n_distinct(year)) 
+  #summarize(wd2 = sum(applied_mass_kkg)/sum(treated_area_kha))
+
+ccc_full <- input_cas_dose %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, name_region.y, name_cropgroup, name_chemclass) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(areaperc = treated_area_kha/sumarea, variabilityweight = areaperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, summass, sumarea, name_region.y, name_cropgroup, name_chemclass, mindose, maxdose) %>%
+  summarize(wd = sum(normalizedweight * dose))
+
+country_imputation <- summary_wdha %>%
+  filter(name_country != "United States of America") %>%
+  select(name_country, name_crop_earthstat, casrn_chemical, name_region.y, wd)
+country_imputation <- country_imputation %>%
+  left_join(crop_id, by = c("name_crop_earthstat" = "CROPNAME"))
+
+country_imputation_fullccc <- ccc_full %>%
+  filter(name_country != "United States of America") %>%
+  select(name_country, name_crop_earthstat, casrn_chemical, name_region.y, wd)
+country_imputation_fullccc <- country_imputation_fullccc %>%
+  left_join(crop_id, by = c("name_crop_earthstat" = "CROPNAME"))
+
+
+country_imputation_combi <- country_imputation %>%
+  filter(name_country != "United States of America") %>%
+  left_join(join_short_uni, by = c("name_country" = "name_cntr", "name_crop_earthstat" = "variable")) %>%
+  select( -mindose, -summass, -sumarea) #%>%
+  filter(!is.na(layer_climate)) # no fodder or forage in cropmap
+unique(country_imputation_combi$name_country)
+
+country_imputation_combi_n <- join_short_uni %>%
+  #left_join(country_imputationsoil, by = c("name_country" = "name_country", "variable" = "name_crop_earthstat")) %>%
+  #select(-mindose, -summass, -sumarea) %>%
+  #filter(name_crop != "smil") %>%
+  #filter(name_crop != "cowp") %>%
+  #filter(name_crop != "rcof") %>%
+  #filter(name_crop != "cnut") %>%
+  #filter(is.na(wd)) %>%
+  #filter(name_cntr == "Morocco")
+  filter(!name_cntr %in% country_imputation_combi$name_country)
+
+#no-scenarios in exist countries, using the full original dataset (input_cas_dose but not the one after deleting steps input_caschem)
+country_imputation_combi_existcountrynocrop <- join_short_uni %>%
+  left_join(country_imputation_fullccc, by = c("name_cntr" = "name_country", "variable" = "name_crop_earthstat")) %>%
+  select(-mindose, -summass, -sumarea) %>%
+  filter(is.na(wd)) %>%
+  filter(name_cntr %in% country_imputation_combi$name_country)
+
+existcountrynocrop <- country_imputation_combi_existcountrynocrop %>%
+  group_by(name_country, variable) %>%
+  summarize(count = nt())
+existcountryexistcrop <- input_cas_dose %>%
+  group_by(name_country, name_crop_earthstat) %>%
+  summarize(count = n_distinct(casrn_chemical))
+nocountryexistcrop <- country_imputation_combi_n %>%
+  group_by(name_country, variable) %>%
+  summarize(count = n())
+
+write.csv(country_imputation_combi, "20221028country_input_full_usa.csv")
+write.csv(country_imputation_combi_n, "20221028country_input_n_usa.csv")
+write.csv(country_imputation_combi_existcountrynocrop, "20221028country_imputation_combi_existcountrynocrop_morocco.csv")
+```
+
+
+
+#other countries imputation only using crop country chemical
+```{r}
+input_caschem
+crop <- read_excel("C:/me/Database/harmonization/harmonization_crop.xlsx", sheet = 1)
+crop_spam <- read_excel("C:/me/Database/harmonization/Crop_Data.xlsx", sheet = 2)
+spam_id <- read_excel("C:/me/Database/harmonization/Crop_Data.xlsx", sheet = 3)
+
+
+#crop-country-chemical combination
+input_ccc <- input_caschem %>%
+  group_by(name_crop_earthstat, name_country, casrn_chemical, name_region.y, name_cropgroup) %>%
+  summarize(summass = sum(applied_mass_kkg))
+
+crop_id <- crop_spam %>%
+  left_join(spam_id, by = c("id_spam" = "ID")) %>%
+  select(`CROPNAME`, `Short Name`, name_group_yy)
+
+country_imputation_ccc <- input_ccc %>%
+  select(name_country, name_crop_earthstat, casrn_chemical, name_region.y, summass)
+country_imputation_ccc <- country_imputation_ccc %>%
+  left_join(crop_id, by = c("name_crop_earthstat" = "CROPNAME"))
+
+
+country_imputation_combi_ccc <- country_imputation_ccc %>%
+  left_join(join_short_uni, by = c("name_country" = "name_country", "name_crop_earthstat" = "variable")) %>%
+  #select( -mindose, -summass, -sumarea) %>%
+  filter(!is.na(layer_climate)) # no fodder or forage in cropmap
+unique(country_imputation_combi_ccc$name_country)
+
+country_imputation_combi_n_ccc <- join_short_uni %>%
+  #left_join(country_imputation_ccc, by = c("name_country" = "name_country", "variable" = "name_crop_earthstat")) %>%
+  #select(-mindose, -summass, -sumarea) %>%
+  #filter(name_crop != "smil") %>%
+  #filter(name_crop != "cowp") %>%
+  #filter(name_crop != "rcof") %>%
+  #filter(name_crop != "cnut") %>%
+  #filter(is.na(wd)) %>%
+  filter(!name_country %in% country_imputation_combi_ccc$name_country)
+unique(country_imputation_combi_n_ccc$name_country)
+country_imputation_combi_check <- country_imputation_combi_n %>%
+  group_by(name_country, name_crop) %>%
+  summarize(climatecount = n_distinct(layer_climate))
+
+unique(country_imputation_combi$`Short Name`)
+#write.csv(country_imputation_combi, "20220725country_input_full.csv")
+#write.csv(country_imputation_combi_n, "20220725country_input_n.csv")
+write.csv(country_imputation_combi_ccc, "20220912country_input_full_ccc.csv")
+write.csv(country_imputation_combi_n_ccc, "20220912country_input_n_ccc.csv")
+
+
+```
+
+#check combination in crop map or agrowin data
+```{r}
+crop_country_cropmap <- join_short_country_uni_ratio %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea (the Republic of)",
+                                  name_cntr == "Iran, Islamic Republic of" ~ "Iran (Islamic Republic of)",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, the United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~"United States of America",
+                                  name_cntr == "Republic Of Moldova" ~ "Moldova (the Republic of)",
+                                  TRUE ~ name_cntr))%>%
+  group_by(name_country, variable) %>%
+  summarize(area_cropmap = sum(cropsumarea)) %>%
+  filter(area_cropmap != 0)
+crop_country_agrowin <- input_cas_dose %>%
+  group_by(name_country, name_crop_earthstat) %>%
+  summarize(mass = sum(applied_mass_kkg), area_agrowin = sum(treated_area_kha))
+
+#those existed country combination crop-country
+crop_country_cropmap_existcountry <- crop_country_cropmap %>%
+  filter(name_country %in% crop_country_agrowin$name_country)
+
+#existed country combination crop-country not in agrowin data
+crop_country_cropmap_existcountry <- crop_country_cropmap_existcountry %>%
+  full_join(crop_country_agrowin, by = c("name_country", "variable" = "name_crop_earthstat"))
+
+crop_country_onlycropmap <- crop_country_cropmap_existcountry %>%
+  filter(is.na(mass))
+crop_country_onlyagrowin <- crop_country_cropmap_existcountry %>%
+  filter(is.na(area_cropmap))
+crop_country_both <- crop_country_cropmap_existcountry %>%
+  filter(!is.na(mass)) %>%
+  filter(!is.na(area_cropmap))
+
+input_cas_dose_india <- input_cas_dose %>%
+  filter(name_country == "India")
+unique(input_cas_dose_india$name_crop_bayer)
+```
+
+
+#conformal classification
+```{r}
+## load the library
+library(mlbench)
+#library(caret)
+library(conformalClassification)
+## load the DNA dataset
+#data(DNA)
+#summary(DNA)
+#app method full set
+app <- application_imputation_combi %>%
+  ungroup() %>%
+  filter(!is.na(HDI)) %>%
+  filter(!is.na(landevap)) #%>%
+  #select(name_refapp, name_crop_earthstat, name_cropgroup,  name_chemclass1, name_indication, HDI, landevap, layer_climate)
+write.csv(app, "app.csv")
+app <- read.csv("app.csv")
+
+#bbch full set
+bbch <- bbch_imputation_combi %>%
+  ungroup() %>%
+  filter(!is.na(HDI)) %>%
+  filter(!is.na(landevap)) #%>%
+  #select(name_refapp, name_crop_earthstat, name_cropgroup,  name_chemclass1, name_indication, HDI, landevap, layer_climate)
+write.csv(bbch, "bbch.csv")
+bbch <- read.csv("bbch.csv")
+
+#bbch seperate
+bbch.n.df <- bbch_n_imputation_combi %>%
+    filter(!is.na(HDI)) %>%
+    filter(!is.na(landevap)) %>%
+    mutate(Short.Name = `Short Name`) %>%
+    group_by(score, name_region.y, `Short.Name`, name_group_yy,  name_chemclass1,name_moagroup, name_indication, HDI, landevap,layer_climate   ) %>%
+    summarize(count = n()) %>%
+    ungroup() %>%
+    select(-count) #%>%
+    
+#summary(bbch9099)
+i <-3
+for(i in c(1:length(bbch.list))){
+  bbch<- bbch.list[i]
+  bbch.df <-  read.csv(paste0("C:/me/data gaps/20220727bbch_", bbch, ".csv"))
+  bbch.n <- bbch.n.df
+  bbch.n$ChemPresent <- "null"
+  bbch.n <- bbch.n %>%
+    dplyr::select(ChemPresent, score, name_region.y, `Short.Name`, name_group_yy, name_chemclass1, name_moagroup, name_indication, HDI, landevap, layer_climate)
+  bbch.df <- bbch.df %>%
+  dplyr::select(ChemPresent, score, name_region.y, `Short.Name`, name_group_yy,  name_chemclass1, name_moagroup, name_indication, HDI, landevap, layer_climate) %>%
+  filter(!is.na(HDI))%>%
+  filter(!is.na(landevap))
+
+  originalData <- bbch.df
+
+  ## make sure first column is always the label and class labels are always 1, 2, ...
+  originalData[, 1] = as.factor(originalData[, 1])
+  originalData[, 1] = as.numeric(unlist(originalData[, 1]))
+  ## partition the data into training and test set
+  #result = createDataPartition(originalData[, 1], p = 0.7, list = FALSE)
+  #size = nrow(originalData)
+  #result = sample(1:size, 0.8*size)
+  #trainingSet = originalData[result, ]
+  #testSet = originalData[-result, ]
+  #testSet.df <- testSet %>%
+    #mutate(ChemPresent == "null")
+  ##ICP classification
+  #pValues_train = ICPClassification(trainingSet, testSet.df)
+  pValues = ICPClassification(originalData, bbch.n)
+  #CPCalibrationPlot(pValues, testSet, "blue")
+  
+  #library(bcaboot)
+  #number of training samples
+  n = nrow(originalData)
+  nbootstraps <- as.integer(sqrt(n))
+  bootstrap_preds_no <- vector(length = nbootstraps)
+  bootstrap_preds_yes <- vector(length = nbootstraps)
+  bootstrap_preds_yes <- vector(length = 100)
+  val_residuals_no <- vector()
+  val_residuals_yes <- vector()
+  bbch_boot <- matrix(data="X", nrow=nrow(bbch.n), ncol= 12,  dimnames=list(NULL, c("predyes","yesbootlower","yesbootupper", "predno","nobootlower","nobootupper","generalisationyes", "yeslower", "yesupper",  "generalisationno","nolower", "noupper")))
+  for (i in c(31:100)){
+    for(b in c(1:100)){
+    train_idxs = sample(seq(n),size = n, replace = TRUE)
+    pValues_val <- ICPClassification(originalData[train_idxs,], originalData[- train_idxs,])
+    pValues_val_no <- pValues_val[,1]
+    pValues_val_yes <- pValues_val[,2]
+    val_residuals_no <- append(val_residuals_no,(pValues_val_no - originalData[-train_idxs,]$ChemPresent + 1))
+    val_residuals_yes <- append(val_residuals_yes,(pValues_val_yes - originalData[-train_idxs,]$ChemPresent + 1))
+    pValues = ICPClassification(originalData[train_idxs,], bbch.n[i,])
+    bootstrap_preds_no[b] = pValues[1,1]
+    bootstrap_preds_yes[b] = pValues[1,2]
+    }
+  
+  alpha <- 0.05
+  qs = c(alpha/2, 1-alpha/2)  
+  percentile_boot_yes = quantile(bootstrap_preds_yes, qs)
+  percentile_boot_no = quantile(bootstrap_preds_no, qs)
+    
+  bootstrap_preds_no = bootstrap_preds_no - mean(bootstrap_preds_no)
+  bootstrap_preds_yes = bootstrap_preds_yes - mean(bootstrap_preds_yes)
+  preds <- ICPClassification(originalData, bbch.n[i,])
+  preds_no <- preds[1,1]
+  preds_yes <- preds[1,2]
+  val_residuals_yes <- cbind(val_residuals_yes)
+  val_residuals_yes <- quantile(val_residuals_yes, seq(0,1,by = 0.01))
+  
+  val_residuals_no <- cbind(val_residuals_no)
+  val_residuals_no <- quantile(val_residuals_no, seq(0,1, by = 0.01))
+  
+  pValues_model <- ICPClassification(originalData, originalData)
+  pValues_model_no <- pValues_model[,1]
+  pValues_model_yes <- pValues_model[,2]
+  train_residuals_yes <- originalData$ChemPresent - 1 - pValues_model_yes
+  train_residuals_no <- originalData$ChemPresent - 1 - pValues_model_no
+  
+  train_residuals_yes <- quantile(train_residuals_yes, seq(0,1,by = 0.01))
+  train_residuals_no <- quantile(train_residuals_no, seq(0,1,by = 0.01))
+  
+  no_information_error_yes <- mean(abs(randperm(originalData$ChemPresent - 1) - randperm(pValues_model_yes)))
+  no_information_error_no <- mean(abs(randperm(originalData$ChemPresent - 1) - randperm(pValues_model_no)))
+  
+  generalisation_yes <- abs(mean(val_residuals_yes) - mean(train_residuals_yes))
+  generalisation_no <- abs(mean(val_residuals_no) - mean(train_residuals_no))
+  
+  no_information_val_no <- abs(no_information_error_no - train_residuals_no)
+  no_information_val_yes <- abs(no_information_error_yes - train_residuals_yes)
+  
+  relative_overfitting_rate_no <- mean(generalisation_no/no_information_val_no)
+  relative_overfitting_rate_yes <- mean(generalisation_yes/no_information_val_yes)
+  
+  weight_yes <- 0.632 / (1 - 0.368 * relative_overfitting_rate_yes)
+  weight_no <- 0.632 / (1 - 0.368 * relative_overfitting_rate_no)
+  
+  residuals_yes <- (1-weight_yes) * train_residuals_yes + weight_yes * val_residuals_yes
+  residuals_no <- (1-weight_no) * train_residuals_no + weight_no * val_residuals_no
+  
+  C_yes = expand.grid(a= bootstrap_preds_yes, b = residuals_yes)$a + expand.grid(a= bootstrap_preds_yes, b = residuals_yes)$b
+  C_no = expand.grid(a= bootstrap_preds_no, b = residuals_no)$a + expand.grid(a= bootstrap_preds_no, b = residuals_no)$b
+  
+  percentile_yes = quantile(C_yes, qs, na.rm = TRUE)
+  percentile_no = quantile(C_no, qs, na.rm = TRUE)
+  
+  val.out <- c(preds_yes, 
+               percentile_boot_yes[1],
+               percentile_boot_yes[2],
+               preds_no,
+               percentile_boot_no[1],
+               percentile_boot_no[2],
+               generalisation_yes,
+               percentile_yes[1],
+               percentile_yes[2],
+               generalisation_no,
+               percentile_no[1],
+               percentile_no[2])
+  bbch_boot[i,]<- val.out
+  print(i)
+  }
+  
+bbch_bootstrap <- cbind(bbch.n, bbch_boot)
+write.csv(bbch_bootstrap, "20220804bbch_bootstrap.csv")
+  
+  
+a <- c(1,2,3)
+b<- c(5,6,7)
+c <- expand.grid(a = a,b =b)
+c.list = c$a + c$b
+
+  
+  bcapar(t0 = pValues[1,1],
+         tt = bootstrap_preds_no,
+         bb = )
+ 
+ t(train_idxs) %*%  as.matrix(originalData)
+  
+  
+  
+data(diabetes, package = "bcaboot")
+X <- diabetes$x
+y <- scale(diabetes$y, center = TRUE, scale = FALSE)
+lm.model <- lm(y ~ X - 1)
+mu.hat <- lm.model$fitted.values
+sigma.hat <- stats::sd(lm.model$residuals)
+t0 <- summary(lm.model)$adj.r.squared
+y.star <- sapply(mu.hat, rnorm, n = 1000, sd = sigma.hat)
+tt <- apply(y.star, 1, function(y) summary(lm(y ~ X - 1))$adj.r.squared)
+b.star <- y.star %*% X
+train_idxs %*% X
+   
+pValues_val_no
+originalData[-train_idxs,]$ChemPresent
+  
+  alpha <- 0.05
+  qs = c(alpha/2, 1-alpha/2)
+  percentiles_yes = quantile(bootstrap_preds_yes, qs)
+  percentiles_no = quantile(bootstrap_preds_no, qs)
+  
+  
+  pValues[1,1]
+
+  #constructing bootstrap confidence intervals involves merely calling bcajack
+  set.seed(1234)
+  result <- bcajack(x = input_summary, B = 1000, func = rfunc, verbose = FALSE)
+
+  #the result contains several components, the confidence interval limits can be obtained via
+  knitr::kable(result$lims, digits = 3)
+  knitr::kable(result$stats, digits = 3)
+
+  bca0.05 <- result$lims[2,1]
+  bca0.95 <- result$lims[8,1]
+  
+  wd <- sum(input_summary[,44] * input_summary[,53])
+  
+  val.out<- c(chem,
+              crop, 
+              country, 
+              wd,
+              bca0.05,
+              bca0.95
+              )
+  
+  #testLabels = testSet[,1]
+  #CPEfficiency(pValues, testLabels)
+  #CPErrorRate(pValues, testLabels)
+  #CPValidity(pValues, testLabels)
+
+  pValues.df <- as.data.frame(pValues)
+  pValues.df <- pValues.df %>%
+    mutate(Class = names(.)[max.col(.)])
+  pValues.df$Class <-gsub("V","",as.character(pValues.df$Class))
+  
+  bbch.n.impute <- cbind(bbch.n, pValues.df)
+  write.csv(bbch.n.impute, paste0("bbch.n.impute_", bbch, ".csv"))
+  #cm <- as.data.table(table(testSet$ChemPresent, pValues.df$Class))
+  #result <- cbind(testSet, pValues.df)
+  #result <- result %>%
+  #mutate(class1019no = V1, class1019yes = V2, class1019 = Class)
+  #write.csv(result_1019,"20220608result_1019.csv")
+  #result_a <- result %>%
+    #filter(Class == bbch_cluster)
+  print(i)
+}
+
+bbch_n_imputation_combi_result <- bbch_n_imputation_combi %>%
+  filter(!is.na(HDI)) %>%
+  filter(!is.na(landevap))
+write.csv(bbch_n_imputation_combi_result, "20220727bbch_n_imputation_combi_result.csv")
+bbch_n_imputation_combi_result <- read.csv("20220727bbch_n_imputation_combi_result.csv")
+bbch_n_imputation_combi_result <- bbch_n_imputation_combi_result %>%
+  select(-X)
+for(i in c(1:length(bbch.list))){
+  bbch<- bbch.list[i]
+  bbch.n.impute <-  read.csv(paste0("bbch.n.impute_", bbch, ".csv"))
+  bbch_n_imputation_combi_result <- bbch_n_imputation_combi_result %>%
+    left_join(bbch.n.impute, by = c("score","name_region.y", "Short.Name"="Short.Name", "name_group_yy", "name_indication", "layer_climate",  "name_chemclass1", "name_moagroup", "HDI", "landevap")) %>%
+    mutate("{bbch}yes" := V2, "{bbch}no" := V1, "{bbch}class" := Class) %>%
+    select(-V1, -V2,  -ChemPresent, -Class, -X)
+  print(i)
+  
+}
+
+write.csv(bbch_n_imputation_combi_result, "20220727bbch_n_imputation_combi_result_cpp.csv")
+
+bbch_n_imputation_combi_result_seed <- bbch_n_imputation_combi_result %>%
+  filter(seedclass == "2") %>%
+  filter(`0009class` == "1") %>%
+  filter(`1019class` == "1") %>%
+  filter(`2029class` == "1") %>%
+  filter(`3039class` == "1") %>%
+  filter(`4049class` == "1") %>%
+  filter(`5059class` == "1") %>%
+  filter(`6069class` == "1") %>%
+  filter(`7079class` == "1") %>%
+  filter(`8089class` == "1") %>%
+  filter(`9099class` == "1") %>%
+  filter(`9900class` == "1") %>%
+  filter(`soilclass` == "1") %>%
+  filter(`1092class` == "1")
+
+bbch_n_imputation_combi_result_soil <- bbch_n_imputation_combi_result %>%
+  filter(seedclass == "1") %>%
+  filter(`0009class` == "1") %>%
+  filter(`1019class` == "1") %>%
+  filter(`2029class` == "1") %>%
+  filter(`3039class` == "1") %>%
+  filter(`4049class` == "1") %>%
+  filter(`5059class` == "1") %>%
+  filter(`6069class` == "1") %>%
+  filter(`7079class` == "1") %>%
+  filter(`8089class` == "1") %>%
+  filter(`9099class` == "1") %>%
+  filter(`9900class` == "1") %>%
+  filter(`soilclass` == "2") %>%
+  filter(`1092class` == "1")
+
+bbch_n_imputation_combi_result_check <- bbch_n_imputation_combi_result %>%
+  filter(soilclass == "1") %>%
+  group_by(Short.Name, name_country, name_ai, name_indication) %>%
+  summarize(count = n())
+bbch_n_imputation_combi_result_seed_check <- bbch_n_imputation_combi_result_seed %>%
+  group_by(Short.Name, name_country, name_ai, name_indication) %>%
+  summarize(count = n())
+bbch_n_imputation_combi_result_check_c_seed <- bbch_n_imputation_combi_result_check %>%
+  right_join(bbch_n_imputation_combi_result_seed_check, by = c("Short.Name", "name_country", "name_ai", "name_indication")) %>%
+  filter(is.na(count.x) | is.na(count.y) | count.y > count.x)
+bbch_n_imputation_combi_result_soil_check <- bbch_n_imputation_combi_result_soil %>%
+  group_by(Short.Name, name_country, name_ai, name_indication) %>%
+  summarize(count = n())
+bbch_n_imputation_combi_result_check_c_soil <- bbch_n_imputation_combi_result_check %>%
+  right_join(bbch_n_imputation_combi_result_soil_check, by = c("Short.Name", "name_country", "name_ai", "name_indication")) %>%
+  filter(is.na(count.x) | is.na(count.y) | count.y > count.x)
+
+write.csv(bbch_n_imputation_combi_result_check_c_seed, "20220727onlyseed.csv")
+write.csv(bbch_n_imputation_combi_result_check_c_soil, "20220727onlysoil.csv")
+
+bbch_n_imputation_combi_result_check <- bbch_n_imputation_combi_result %>%
+  #filter(`Soil incorporationclass` == "1") %>%
+  group_by(Short.Name, name_country, name_ai, name_indication) %>%
+  summarize(count = n())
+
+
+bbch_n_imputation_combi_result_check_c_seed <- bbch_n_imputation_combi_result_check_c_seed %>%
+  mutate(seedyes = "yes")
+bbch_n_imputation_combi_result_check_c_soil <- bbch_n_imputation_combi_result_check_c_soil %>%
+  mutate(soilyes = "yes")
+bbch_n_imputation_combi_result_check_soilseed <- bbch_n_imputation_combi_result_check %>%
+  left_join(bbch_n_imputation_combi_result_check_c_seed, by = c("Short.Name", "name_country", "name_ai", "name_indication")) %>%
+  left_join(bbch_n_imputation_combi_result_check_c_soil, by = c("Short.Name", "name_country", "name_ai", "name_indication")) %>%
+  mutate(bbchgroup = case_when(!is.na(seedyes) ~ "seed",
+                                      !is.na(soilyes) ~ "soil",
+                                      TRUE ~ "crop")) %>%
+  select(Short.Name, name_country, name_ai, name_indication, bbchgroup)
+
+result_0009_cm <- result_0009 %>%
+  group_by(ChemPresent, class0009) %>%
+  summarize(count = n())
+
+result_1019_cm <- result_1019 %>%
+  group_by(ChemPresent, class1019) %>%
+  summarize(count = n())
+
+result_2029_cm <- result_2029 %>%
+  group_by(ChemPresent, class2029) %>%
+  summarize(count = n())
+
+result_3039_cm <- result_3039 %>%
+  group_by(ChemPresent, class3039) %>%
+  summarize(count = n())
+
+result_4049_cm <- result_4049 %>%
+  group_by(ChemPresent, class4049) %>%
+  summarize(count = n())
+
+result_5059_cm <- result_5059 %>%
+  group_by(ChemPresent, class5059) %>%
+  summarize(count = n())
+
+result_6069_cm <- result_6069 %>%
+  group_by(ChemPresent, class6069) %>%
+  summarize(count = n())
+
+result_7079_cm <- result_7079 %>%
+  group_by(ChemPresent, class7079) %>%
+  summarize(count = n())
+
+result_8089_cm <- result_8089 %>%
+  group_by(ChemPresent, class8089) %>%
+  summarize(count = n())
+
+result_9099_cm <- result_9099 %>%
+  group_by(ChemPresent, class9099) %>%
+  summarize(count = n())
+
+result_9900_cm <- result_9900 %>%
+  group_by(ChemPresent, class9900) %>%
+  summarize(count = n())
+
+result_1092_cm <- result_1092 %>%
+  group_by(ChemPresent, class1092) %>%
+  summarize(count = n())
+
+result_0009 <- result_0009 %>%
+  mutate(chem0009 = ChemPresent) %>%
+  select(-ChemPresent, -V1, -V2, -Class)
+result_1019 <- result_1019 %>%
+  mutate(chem1019 = ChemPresent) %>%
+  select(-ChemPresent, -V1, -V2, -Class)
+result_2029 <- result_2029 %>%
+  mutate(chem2029 = ChemPresent) %>%
+  select(-ChemPresent, -V1, -V2, -Class)
+result_3039 <- result_3039 %>%
+  mutate(chem3039 = ChemPresent) %>%
+  select(-ChemPresent, -V1, -V2, -Class)
+result_4049 <- result_4049 %>%
+  mutate(chem4049 = ChemPresent) %>%
+  select(-ChemPresent, -V1, -V2, -Class)
+result_5059 <- result_5059 %>%
+  mutate(chem5059 = ChemPresent) %>%
+  select(-ChemPresent, -V1, -V2, -Class)
+result_6069 <- result_6069 %>%
+  mutate(chem6069 = ChemPresent) %>%
+  select(-ChemPresent, -V1, -V2, -Class)
+result_7079 <- result_7079 %>%
+  mutate(chem7079 = ChemPresent) %>%
+  select(-ChemPresent, -V1, -V2, -Class)
+result_1092 <- result_1092 %>%
+  mutate(chem1092 = ChemPresent) %>%
+  select(-ChemPresent, -V1, -V2, -Class)
+result_8089 <- result_8089 %>%
+  mutate(chem8089 = ChemPresent) %>%
+  select(-ChemPresent, -V1, -V2, -Class)
+result_9099 <- result_9099 %>%
+  mutate(chem9099 = ChemPresent) %>%
+  select(-ChemPresent, -V1, -V2, -Class)
+result_9900 <- result_9900 %>%
+  mutate(chem9900 = ChemPresent) %>%
+  select(-ChemPresent, -V1, -V2, -Class)
+
+result_0009_p <- result_0009 %>%
+  mutate(class0009 = case_when(class0009no < 0.05 & class0009yes < 0.05 ~ "both p < 0.05",
+                                       class0009no >= 0.05 & class0009yes >= 0.05 ~ "both p >= 0.05",
+                                       class0009no >= 0.05 & class0009no > class0009yes ~ "1",
+                                       class0009yes >= 0.05 & class0009yes > class0009no ~ "2"))
+result_1019_p <- result_1019 %>%
+  mutate(class1019 = case_when(class1019no < 0.05 & class1019yes < 0.05 ~ "both p < 0.05",
+                                       class1019no >= 0.05 & class1019yes >= 0.05 ~ "both p >= 0.05",
+                                       class1019no >= 0.05 & class1019no > class1019yes ~ "1",
+                                       class1019yes >= 0.05 & class1019yes > class1019no ~ "2"))
+result_2029_p <- result_2029 %>%
+  mutate(class2029 = case_when(class2029no < 0.05 & class2029yes < 0.05 ~ "both p < 0.05",
+                                       class2029no >= 0.05 & class2029yes >= 0.05 ~ "both p >= 0.05",
+                                       class2029no >= 0.05 & class2029no > class2029yes ~ "1",
+                                       class2029yes >= 0.05 & class2029yes > class2029no ~ "2"))
+result_3039_p <- result_3039 %>%
+  mutate(class3039 = case_when(class3039no < 0.05 & class3039yes < 0.05 ~ "both p < 0.05",
+                                       class3039no >= 0.05 & class3039yes >= 0.05 ~ "both p >= 0.05",
+                                       class3039no >= 0.05 & class3039no > class3039yes ~ "1",
+                                       class3039yes >= 0.05 & class3039yes > class3039no ~ "2"))
+result_4049_p <- result_4049 %>%
+  mutate(class4049 = case_when(class4049no < 0.05 & class4049yes < 0.05 ~ "both p < 0.05",
+                                       class4049no >= 0.05 & class4049yes >= 0.05 ~ "both p >= 0.05",
+                                       class4049no >= 0.05 & class4049no > class4049yes ~ "1",
+                                       class4049yes >= 0.05 & class4049yes > class4049no ~ "2"))
+result_5059_p <- result_5059 %>%
+  mutate(class5059 = case_when(class5059no < 0.05 & class5059yes < 0.05 ~ "both p < 0.05",
+                                       class5059no >= 0.05 & class5059yes >= 0.05 ~ "both p >= 0.05",
+                                       class5059no >= 0.05 & class5059no > class5059yes ~ "1",
+                                       class5059yes >= 0.05 & class5059yes > class5059no ~ "2"))
+result_6069_p <- result_6069 %>%
+  mutate(class6069 = case_when(class6069no < 0.05 & class6069yes < 0.05 ~ "both p < 0.05",
+                                       class6069no >= 0.05 & class6069yes >= 0.05 ~ "both p >= 0.05",
+                                       class6069no >= 0.05 & class6069no > class6069yes ~ "1",
+                                       class6069yes >= 0.05 & class6069yes > class6069no ~ "2"))
+result_7079_p <- result_7079 %>%
+  mutate(class7079 = case_when(class7079no < 0.05 & class7079yes < 0.05 ~ "both p < 0.05",
+                                       class7079no >= 0.05 & class7079yes >= 0.05 ~ "both p >= 0.05",
+                                       class7079no >= 0.05 & class7079no > class7079yes ~ "1",
+                                       class7079yes >= 0.05 & class7079yes > class7079no ~ "2"))
+result_8089_p <- result_8089 %>%
+  mutate(class8089 = case_when(class8089no < 0.05 & class8089yes < 0.05 ~ "both p < 0.05",
+                                       class8089no >= 0.05 & class8089yes >= 0.05 ~ "both p >= 0.05",
+                                       class8089no >= 0.05 & class8089no > class8089yes ~ "1",
+                                       class8089yes >= 0.05 & class8089yes > class8089no ~ "2"))
+result_9099_p <- result_9099 %>%
+  mutate(class9099 = case_when(class9099no < 0.05 & class9099yes < 0.05 ~ "both p < 0.05",
+                                       class9099no >= 0.05 & class9099yes >= 0.05 ~ "both p >= 0.05",
+                                       class9099no >= 0.05 & class9099no > class9099yes ~ "1",
+                                       class9099yes >= 0.05 & class9099yes > class9099no ~ "2"))
+result_9900_p <- result_9900 %>%
+  mutate(class9900 = case_when(class9900no < 0.05 & class9900yes < 0.05 ~ "both p < 0.05",
+                                       class9900no >= 0.05 & class9900yes >= 0.05 ~ "both p >= 0.05",
+                                       class9900no >= 0.05 & class9900no > class9900yes ~ "1",
+                                       class9900yes >= 0.05 & class9900yes > class9900no ~ "2"))
+result_1092_p <- result_1092 %>%
+  mutate(class1092 = case_when(class1092no < 0.05 & class1092yes < 0.05 ~ "both p < 0.05",
+                                       class1092no >= 0.05 & class1092yes >= 0.05 ~ "both p >= 0.05",
+                                       class1092no >= 0.05 & class1092no > class1092yes ~ "1",
+                                       class1092yes >= 0.05 & class1092yes > class1092no ~ "2"))
+
+result_full_bbch <- result_0009_p %>%
+  left_join(result_1019_p, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_chemclass1", "name_moagroup", "name_indication", "HDI", "landevap", "layer_climate")) %>%
+  left_join(result_2029_p, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_chemclass1", "name_moagroup", "name_indication", "HDI", "landevap", "layer_climate")) %>%
+  left_join(result_3039_p, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_chemclass1", "name_moagroup", "name_indication", "HDI", "landevap", "layer_climate")) %>%
+  left_join(result_4049_p, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_chemclass1", "name_moagroup", "name_indication", "HDI", "landevap", "layer_climate")) %>%
+  left_join(result_5059_p, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_chemclass1", "name_moagroup", "name_indication", "HDI", "landevap", "layer_climate")) %>%
+  left_join(result_6069_p, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_chemclass1", "name_moagroup", "name_indication", "HDI", "landevap", "layer_climate")) %>%
+  left_join(result_7079_p, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_chemclass1", "name_moagroup", "name_indication", "HDI", "landevap", "layer_climate")) %>%
+  left_join(result_8089_p, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_chemclass1", "name_moagroup", "name_indication", "HDI", "landevap", "layer_climate")) %>%
+  left_join(result_9099_p, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_chemclass1", "name_moagroup", "name_indication", "HDI", "landevap", "layer_climate")) %>%
+  left_join(result_9900_p, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_chemclass1", "name_moagroup", "name_indication", "HDI", "landevap", "layer_climate")) %>%
+  left_join(result_1092_p, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_chemclass1", "name_moagroup", "name_indication", "HDI", "landevap", "layer_climate"))
+write.csv(result_full_bbch, "20220608result_full_bbch.csv")
+
+result_full_a <- result_full %>%
+  select(name_country, name_crop_earthstat, name_cropgroup, name_chemclass1, name_moagroup, name_indication, HDI, landevap, layer_climate, class0009no, class0009yes, chem0009, class1019no, class1019yes, chem1019, class2029no, class2029yes, chem2029, class3039no, class3039yes, chem3039, class4049no, class4049yes, chem4049,class5059no, class5059yes, chem5059,class6069no, class6069yes, chem6069,class7079no, class7079yes, chem7079,class8089no, class8089yes, chem8089,class9099no, class9099yes, chem9099,class9900no, class9900yes, chem9900,class1092no, class1092yes, chem1092)
+```
+
+
+#country level bbch imputation
+```{r}
+bbch.n.df <- bbch_n_imputation_combi %>%
+    filter(!is.na(HDI)) %>%
+    filter(!is.na(landevap)) %>%
+    #mutate(Short.Name = `Short Name`) %>%
+    group_by(score, name_region.y, name_crop_earthstat, name_group_yy,  name_chemclass1,name_moagroup, name_activeindication, HDI, landevap) %>%
+    summarize(count = n()) %>%
+    ungroup() %>%
+    select(-count) #%>%
+
+dat.out_0.05 <- matrix(data = "X", nrow = length(bbch.list), ncol = 8, dimnames = list(NULL, c("BBCH", "No_ActualNo", "Yes_ActualNo", "No_ActualYes",
+                                                                                               "Yes_ActualYes", "out of prediction","No_Accuracy", "Yes_Accuracy")))
+dat.out_0.1 <- matrix(data = "X", nrow = length(bbch.list), ncol = 8, dimnames = list(NULL, c("BBCH", "No_ActualNo", "Yes_ActualNo", "No_ActualYes",
+                                                                                               "Yes_ActualYes", "out of prediction","No_Accuracy", "Yes_Accuracy")))
+dat.out_0.01 <- matrix(data = "X", nrow = length(bbch.list), ncol = 8, dimnames = list(NULL, c("BBCH", "No_ActualNo", "Yes_ActualNo", "No_ActualYes",
+                                                                                               "Yes_ActualYes", "out of prediction","No_Accuracy", "Yes_Accuracy")))
+dat.out_0.2 <- matrix(data = "X", nrow = length(bbch.list), ncol = 8, dimnames = list(NULL, c("BBCH", "No_ActualNo", "Yes_ActualNo", "No_ActualYes",
+                                                                                               "Yes_ActualYes", "out of prediction","No_Accuracy", "Yes_Accuracy")))
+dat.out_0.15 <- matrix(data = "X", nrow = length(bbch.list), ncol = 8, dimnames = list(NULL, c("BBCH", "No_ActualNo", "Yes_ActualNo", "No_ActualYes",
+                                                                                               "Yes_ActualYes", "out of prediction","No_Accuracy", "Yes_Accuracy")))
+
+#summary(bbch9099)
+i <-3
+for(i in c(1:length(bbch.list))){
+  bbch<- bbch.list[i]
+  bbch.df <-  read.csv(paste0("C:/me/data gaps/20221110bbch_country", bbch, ".csv"))
+  bbch.n <- bbch.n.df
+  bbch.n$ChemPresent <- "null"
+  bbch.n <- bbch.n %>%
+    dplyr::select(ChemPresent, score, name_region.y, name_crop_earthstat, name_group_yy, name_chemclass1, name_moagroup, name_activeindication, HDI, landevap)
+  bbch.df <- bbch.df %>%
+  dplyr::select(ChemPresent, score, name_region.y, name_crop_earthstat, name_group_yy,  name_chemclass1, name_moagroup, name_activeindication, HDI, landevap) %>%
+  filter(!is.na(HDI))%>%
+  filter(!is.na(landevap))
+
+  originalData <- bbch.df
+
+  ## make sure first column is always the label and class labels are always 1, 2, ...
+  originalData[, 1] = as.factor(originalData[, 1])
+  originalData[, 1] = as.numeric(unlist(originalData[, 1]))
+  ## partition the data into training and test set
+  #result = createDataPartition(originalData[, 1], p = 0.7, list = FALSE)
+  #size = nrow(originalData)
+  #result = sample(1:size, 0.8*size)
+  #trainingSet = originalData[result, ]
+  #testSet = originalData[-result, ]
+  #testSet.df <- testSet %>%
+    #mutate(ChemPresent == "null")
+  ##ICP classification
+  #pValues_train = ICPClassification(trainingSet, testSet.df)
+  #pValues = ICPClassification(originalData, bbch.n)
+  
+  bootstrap_preds_yes <- matrix(data = "X", nrow = nrow(bbch.n), ncol = 10)
+  bootstrap_preds_no <- matrix(data = "X", nrow = nrow(bbch.n), ncol = 10)
+  
+  for(b in c(1:10)){
+    #train_idxs = sample(seq(n),size = n, replace = TRUE)
+    originalData_r <- originalData
+    #originalData_r <- originalData_r %>%
+      #select(-orig.id)
+    pValues = ICPClassification(originalData_r, bbch.n, ratioTrain = 0.7, method = "rf", nrTrees = 100)
+    for(j in c(1:nrow(testSet.df))){
+      bootstrap_preds_no[j,b] = pValues[j,1]
+      bootstrap_preds_yes[j,b] = pValues[j,2]
+      #print(i)
+    }
+    print(b)
+  }
+  
+  # bootstrap_preds_no.df <- as.data.frame(bootstrap_preds_no)
+  # bootstrap_preds_no.df10 <- bootstrap_preds_no.df[1:20,]
+  # bootstrap_preds_no.df <- bootstrap_preds_no.df %>%
+  #   mutate_if(is.character, as.numeric) #%>%
+  #   rowwise() %>%
+  #   mutate(median = median(c_across(where(is.numeric)), na.rm = TRUE))
+  # percentile_boot_no <- bootstrap_preds_no.df %>%
+  #   bind_cols(as.data.frame(t(apply(., 1, quantile, c(0.05, 0.95)))))
+  # percentile_boot_no <- percentile_boot_no %>%
+  #   mutate(no0.05 = `5%`, no0.95 = `95%`) %>%
+  #   dplyr::select(no0.05, no0.95)
+  # bootstrap_preds_no_median <- bootstrap_preds_no.df %>%
+  #   rowwise() %>%
+  #   mutate(median = median(c_across(where(is.numeric)), na.rm = TRUE))
+  # percentile_median_no <- cbind(percentile_boot_no, bootstrap_preds_no_median$median)
+  
+  
+  
+  bootstrap_preds_yes.df <- as.data.frame(bootstrap_preds_yes)
+  bootstrap_preds_yes.df <- bootstrap_preds_yes.df %>%
+    mutate_if(is.character, as.numeric)
+  percentile_boot_yes10 <- bootstrap_preds_yes.df %>%
+    bind_cols(as.data.frame(t(apply(., 1, quantile, c(0.025, 0.975)))))
+  percentile_boot_yes <- percentile_boot_yes10 %>%
+    mutate(yes0.025 = `2.5%`, yes0.975 = `97.5%`) %>%
+    select(yes0.025, yes0.975)
+  bootstrap_preds_yes_median <- bootstrap_preds_yes.df %>%
+    rowwise() %>%
+    mutate(medianyes = median(c_across(where(is.numeric)), na.rm = TRUE))
+  #percentile_median_yes <- cbind(testSet.df, percentile_boot_yes, bootstrap_preds_yes_median) #%>%
+    #filter(median > 0.05)
+  #write.csv(percentile_median_yes, "20221020percentile_median_yes.csv")
+  
+  bootstrap_preds_no.df <- as.data.frame(bootstrap_preds_no)
+  bootstrap_preds_no.df <- bootstrap_preds_no.df %>%
+    mutate_if(is.character, as.numeric)
+  percentile_boot_no10 <- bootstrap_preds_no.df %>%
+    bind_cols(as.data.frame(t(apply(., 1, quantile, c(0.025, 0.975)))))
+  percentile_boot_no <- percentile_boot_no10 %>%
+    mutate(no0.025 = `2.5%`, no0.975 = `97.5%`) %>%
+    select(no0.025, no0.975)
+  bootstrap_preds_no_median <- bootstrap_preds_no.df %>%
+    rowwise() %>%
+    mutate(medianno = median(c_across(where(is.numeric)), na.rm = TRUE))
+  percentile_median <- cbind(bbch.n, percentile_boot_no, percentile_boot_yes, bootstrap_preds_no_median, bootstrap_preds_yes_median) #%>%
+    #filter(median > 0.05)
+  write.csv(percentile_median, "20221110percentile_median_no.csv")
+  
+  #generating prediction yes no results
+  #CPCalibrationPlot(pValues_train, testSet, "blue")
+  
+  #testLabels = testSet.df[,1]
+  # CPEfficiency_0.05 <- CPEfficiency(pValues_train, testLabels,sigfLevel = 0.05)
+  # CPErrorRate_0.05 <- CPErrorRate(pValues_train, testLabels, sigfLevel = 0.05)
+  # CPEfficiency_0.01 <- CPEfficiency(pValues_train, testLabels,sigfLevel = 0.01)
+  # CPErrorRate_0.01 <- CPErrorRate(pValues_train, testLabels,sigfLevel = 0.01)
+  # CPEfficiency_0.1 <- CPEfficiency(pValues_train, testLabels,sigfLevel = 0.1)
+  # CPErrorRate_0.1 <- CPErrorRate(pValues_train, testLabels,sigfLevel = 0.1)
+  # CPEfficiency_0.2 <- CPEfficiency(pValues_train, testLabels,sigfLevel = 0.2)
+  # CPErrorRate_0.2 <- CPErrorRate(pValues_train, testLabels,sigfLevel = 0.2)
+  # CPEfficiency_0.15 <- CPEfficiency(pValues_train, testLabels,sigfLevel = 0.15)
+  # CPErrorRate_0.15 <- CPErrorRate(pValues_train, testLabels,sigfLevel = 0.15)
+  #CPValidity(pValues_train, testLabels)
+  
+  #pValues.df <- as.data.frame(pValues)
+  #pValues.df <- pValues.df %>%
+    #mutate(Class = names(.)[max.col(.)])
+  #pValues.df$Class <-gsub("V","",as.character(pValues.df$Class))
+  
+  pValues.df <- percentile_median %>%
+    select(medianyes, medianno) %>%
+    mutate(V1 = medianno, V2 = medianyes) %>%
+    select(-medianyes, -medianno)
+  
+  pValues.df <- pValues.df %>%
+    mutate(Class = names(.)[max.col(.)])
+  pValues.df$Class <-gsub("V","",as.character(pValues.df$Class))
+  sig <- 0.05
+  pValues.df.pred_0.05 <- pValues.df %>%
+    mutate(chemPred = case_when(#V1 >= sig & V2 >= sig ~ "both p >= sig",
+                                V1 < sig & V2 < sig ~ "both p < sig",
+                                V1 >= sig & V2 < V1 ~ "V1",
+                                V2 >= sig & V2 > V1 ~ "V2"))
+                                #V2 < V1 ~ "V1",
+                                #V2 > V1 ~ "V2"))
+  
+  bbch.n.impute <- cbind(bbch.n, pValues.df.pred_0.05)
+  write.csv(bbch.n.impute, paste0("20221110bbch.n.impute_", bbch, ".csv"))
+  # cm_0.05 <- as.data.table(table(testSet.df$ChemPresent, pValues.df.pred_0.05$chemPred))
+  # val.out_0.05 <- c(bbch,
+  #              cm_0.05[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.05[V1 == "1" & V2 == "V2"]$N,
+  #              cm_0.05[V1 == "2" & V2 == "V1"]$N,
+  #              cm_0.05[V1 == "2" & V2 == "V2"]$N,
+  #              nrow(testSet) - cm_0.05[V1 == "2" & V2 == "V2"]$N - cm_0.05[V1 == "2" & V2 == "V1"]$N - cm_0.05[V1 == "1" & V2 == "V2"]$N - cm_0.05[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.05[V1 == "1" & V2 == "V1"]$N/length(which(testSet.df$ChemPresent == "1")),
+  #              cm_0.05[V1 == "2" & V2 == "V2"]$N/length(which(testSet.df$ChemPresent == "2")))
+  # 
+  # cm_0.01 <- as.data.table(table(testSet.df$ChemPresent, pValues.df.pred_0.01$chemPred))
+  # val.out_0.01 <- c(bbch,
+  #              cm_0.01[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.01[V1 == "1" & V2 == "V2"]$N,
+  #              cm_0.01[V1 == "2" & V2 == "V1"]$N,
+  #              cm_0.01[V1 == "2" & V2 == "V2"]$N,
+  #              nrow(testSet) - cm_0.01[V1 == "2" & V2 == "V2"]$N - cm_0.01[V1 == "2" & V2 == "V1"]$N - cm_0.01[V1 == "1" & V2 == "V2"]$N - cm_0.01[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.01[V1 == "1" & V2 == "V1"]$N/length(which(testSet.df$ChemPresent == "1")),
+  #              cm_0.01[V1 == "2" & V2 == "V2"]$N/length(which(testSet.df$ChemPresent == "2")))
+  # 
+  # cm_0.1 <- as.data.table(table(testSet.df$ChemPresent, pValues.df.pred_0.1$chemPred))
+  # val.out_0.1 <- c(bbch,
+  #              cm_0.1[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.1[V1 == "1" & V2 == "V2"]$N,
+  #              cm_0.1[V1 == "2" & V2 == "V1"]$N,
+  #              cm_0.1[V1 == "2" & V2 == "V2"]$N,
+  #              nrow(testSet) - cm_0.1[V1 == "2" & V2 == "V2"]$N - cm_0.1[V1 == "2" & V2 == "V1"]$N - cm_0.1[V1 == "1" & V2 == "V2"]$N - cm_0.1[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.1[V1 == "1" & V2 == "V1"]$N/length(which(testSet.df$ChemPresent == "1")),
+  #              cm_0.1[V1 == "2" & V2 == "V2"]$N/length(which(testSet.df$ChemPresent == "2")))
+  # 
+  # cm_0.2 <- as.data.table(table(testSet.df$ChemPresent, pValues.df.pred_0.2$chemPred))
+  # val.out_0.2 <- c(bbch,
+  #              cm_0.2[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.2[V1 == "1" & V2 == "V2"]$N,
+  #              cm_0.2[V1 == "2" & V2 == "V1"]$N,
+  #              cm_0.2[V1 == "2" & V2 == "V2"]$N,
+  #              nrow(testSet) - cm_0.2[V1 == "2" & V2 == "V2"]$N - cm_0.2[V1 == "2" & V2 == "V1"]$N - cm_0.2[V1 == "1" & V2 == "V2"]$N - cm_0.2[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.2[V1 == "1" & V2 == "V1"]$N/length(which(testSet.df$ChemPresent == "1")),
+  #              cm_0.2[V1 == "2" & V2 == "V2"]$N/length(which(testSet.df$ChemPresent == "2")))
+  # 
+  # cm_0.15 <- as.data.table(table(testSet.df$ChemPresent, pValues.df.pred_0.15$chemPred))
+  # val.out_0.15 <- c(bbch,
+  #              cm_0.15[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.15[V1 == "1" & V2 == "V2"]$N,
+  #              cm_0.15[V1 == "2" & V2 == "V1"]$N,
+  #              cm_0.15[V1 == "2" & V2 == "V2"]$N,
+  #              nrow(testSet) - cm_0.15[V1 == "2" & V2 == "V2"]$N - cm_0.15[V1 == "2" & V2 == "V1"]$N - cm_0.15[V1 == "1" & V2 == "V2"]$N - cm_0.15[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.15[V1 == "1" & V2 == "V1"]$N/length(which(testSet.df$ChemPresent == "1")),
+  #              cm_0.15[V1 == "2" & V2 == "V2"]$N/length(which(testSet.df$ChemPresent == "2")))
+  #result <- cbind(testSet, pValues.df)
+  #result <- result %>%
+  #mutate(class1019no = V1, class1019yes = V2, class1019 = Class)
+  #write.csv(result_1019,"20220608result_1019.csv")
+  #result_a <- result %>%
+    #filter(Class == bbch_cluster)
+  # dat.out_0.05[i,] <- val.out_0.05
+  # dat.out_0.1[i,] <- val.out_0.1
+  # dat.out_0.01[i,] <- val.out_0.01
+  # dat.out_0.2[i,] <- val.out_0.2
+  print(i)
+}
+
+dat.out_0.05 <- as.data.frame(dat.out_0.05)
+dat.out_0.05$sigf <- 0.05
+
+dat.out_0.01 <- as.data.frame(dat.out_0.01)
+dat.out_0.01$sigf <- 0.01
+
+dat.out_0.1 <- as.data.frame(dat.out_0.1)
+dat.out_0.1$sigf <- 0.1
+
+dat.out_0.2 <- as.data.frame(dat.out_0.2)
+dat.out_0.2$sigf <- 0.2
+
+bbch_pred_sigf <- rbind(dat.out_0.01, dat.out_0.05, dat.out_0.1, dat.out_0.2)
+
+bbch_pred_sigf$No_Accuracy <- as.numeric(bbch_pred_sigf$No_Accuracy)
+bbch_pred_sigf$Yes_Accuracy <- as.numeric(bbch_pred_sigf$Yes_Accuracy)
+bbch_pred_sigf$CPEfficiency <- as.numeric(bbch_pred_sigf$CPEfficiency)
+bbch_pred_sigf$CPErrorRate <- as.numeric(bbch_pred_sigf$CPErrorRate)
+bbch_pred_sigf$`out of prediction` <- as.numeric(bbch_pred_sigf$`out of prediction`)
+bbch_pred_sigf$sigf <- as.factor(bbch_pred_sigf$sigf)
+
+bbch_pred_sigf0.01 <- bbch_pred_sigf %>%
+  filter(sigf == 0.01)
+
+bbch_pred_sigf %>%
+  ggplot(aes(x = BBCH, color = sigf, group = sigf)) +
+  geom_point(aes(y = No_Accuracy)) +
+  geom_line(aes(y = No_Accuracy))
+
+bbch_pred_sigf_long <- melt(bbch_pred_sigf, id.vars = c("BBCH", "sigf"),measure.vars = c("No_Accuracy", "Yes_Accuracy", "out of prediction"), variable.name = "performance")
+bbch_pred_sigf_long$value <- as.numeric(bbch_pred_sigf_long$value)
+
+write.csv(bbch_pred_sigf_long, "20221024bbch_pred_sigf_long.csv")
+bbch_pred_sigf_long <- read.csv("20221024bbch_pred_sigf_long.csv")
+
+bbch_pred_sigf_long$BBCH <- as.factor(bbch_pred_sigf_long$BBCH)
+bbch_pred_sigf_long$value <- as.numeric(bbch_pred_sigf_long$value)
+bbch_pred_sigf_long$sigf <- as.factor(bbch_pred_sigf_long$sigf)
+
+bbch_pred_sigf_long %>%
+  #filter(sigf == 0.01) %>%
+  ggplot(aes(x = BBCH, color = sigf, group = sigf)) +
+  geom_point(aes(y = value), size = 3) +
+  #geom_line(aes(y = value)) +
+  facet_wrap( ~ performance, scales = "free_y") +
+  scale_color_viridis(discrete = TRUE) +
+  theme_bw()
+
+ggsave("20220824bbch_pred_sigf_long_bw.jpeg", width = 40, height = 16, units = "cm")
+
+bbch_n_imputation_combi_result <- bbch_n_imputation_combi %>%
+  filter(!is.na(HDI)) %>%
+  filter(!is.na(landevap))
+write.csv(bbch_n_imputation_combi_result, "20220810bbch_n_imputation_combi_result.csv")
+bbch_n_imputation_combi_result <- read.csv("20220810bbch_n_imputation_combi_result.csv")
+bbch_n_imputation_combi_result <- bbch_n_imputation_combi_result %>%
+  select(-X)
+for(i in c(1:length(bbch.list))){
+  bbch<- bbch.list[i]
+  bbch.n.impute <-  read.csv(paste0("20220810bbch.n.impute_", bbch, ".csv"))
+  bbch_n_imputation_combi_result <- bbch_n_imputation_combi_result %>%
+    left_join(bbch.n.impute, by = c("score","name_region.y", "name_crop_earthstat", "name_group_yy", "name_indication", "name_chemclass1", "name_moagroup", "HDI", "landevap")) %>%
+    mutate("{bbch}yes" := V2, "{bbch}no" := V1, "{bbch}class" := Class) %>%
+    select(-V1, -V2,  -ChemPresent, -Class, -X)
+  print(i)
+  
+}
+
+write.csv(bbch_n_imputation_combi_result, "20220810bbch_n_imputation_combi_result_cpp.csv")
+bbch_n_imputation_combi_result <- read.csv("20220810bbch_n_imputation_combi_result_cpp.csv")
+
+
+# bbch_n_imputation_combi_result_seed <- bbch_n_imputation_combi_result %>%
+#   mutate(Class = names(bbch_n_imputation_combi_result)[c(17,20,23,26, 29,32)][max.col(bbch_n_imputation_combi_result[c(17,20,23,26, 29,32)])]) %>%
+#   filter(`Seed.treatmentclass` == "2") %>%
+#   filter(Class == "Seed.treatmentyes" | (`Seed.treatmentclass` == "2" & `Boom.sprayerclass` == "1" & `Soil.incorporationclass` == "1" & `Aerial.applicationclass` == "1" & `Hand.operated.sprayerclass` == "1" & `Tunnel.sprayerclass` == "1"))
+
+bbch_n_imputation_combi_result_seed <- bbch_n_imputation_combi_result %>%
+  filter(seedclass == "2") %>%
+  filter(`X0009class` == "1") %>%
+  filter(`X1019class` == "1") %>%
+  filter(`X2029class` == "1") %>%
+  filter(`X3039class` == "1") %>%
+  filter(`X4049class` == "1") %>%
+  filter(`X5059class` == "1") %>%
+  filter(`X6069class` == "1") %>%
+  filter(`X7079class` == "1") %>%
+  filter(`X8089class` == "1") %>%
+  filter(`X9099class` == "1") %>%
+  filter(`X9900class` == "1") %>%
+  filter(`soilclass` == "1") %>%
+  filter(`X1092class` == "1")
+
+bbch_n_imputation_combi_result_soil <- bbch_n_imputation_combi_result %>%
+  filter(seedclass == "1") %>%
+  filter(`X0009class` == "1") %>%
+  filter(`X1019class` == "1") %>%
+  filter(`X2029class` == "1") %>%
+  filter(`X3039class` == "1") %>%
+  filter(`X4049class` == "1") %>%
+  filter(`X5059class` == "1") %>%
+  filter(`X6069class` == "1") %>%
+  filter(`X7079class` == "1") %>%
+  filter(`X8089class` == "1") %>%
+  filter(`X9099class` == "1") %>%
+  filter(`X9900class` == "1") %>%
+  filter(`soilclass` == "2") %>%
+  filter(`X1092class` == "1")
+
+
+bbch_n_imputation_combi_result_seed <- bbch_n_imputation_combi_result_seed %>%
+  mutate(yesseed = "yes")
+bbch_n_imputation_combi_result_soil <- bbch_n_imputation_combi_result_soil %>%
+  mutate(yessoil = "yes")
+bbch_n_imputation_combi_result_check_soilseed <- bbch_n_imputation_combi_result %>%
+  left_join(bbch_n_imputation_combi_result_seed, by = c("name_crop_earthstat", "name_country", "name_ai", "name_indication")) %>%
+  left_join(bbch_n_imputation_combi_result_soil, by = c("name_crop_earthstat", "name_country", "name_ai", "name_indication")) %>%
+  mutate(bbchgroup = case_when(!is.na(yesseed) ~ "seed",
+                                      !is.na(yessoil) ~ "soil",
+                                      TRUE ~ "crop")) %>%
+  select(name_crop_earthstat, name_country, name_ai, name_indication, bbchgroup)
+
+bbch_n_imputation_combi_result_check_soilseed_a <- bbch_n_imputation_combi_result_check_soilseed %>%
+  group_by(name_crop_earthstat, name_country, name_ai, name_indication, bbchgroup) %>%
+  summarize(n = n()) %>%
+  filter(n > 1)
+
+input_appbbch_bbch <- input_appbbch %>%
+  filter(bbch_YN == "NO") %>%
+  filter(!is.na(`Short Name`)) %>%
+  left_join(bbch_n_imputation_combi_result_check_soilseed, by = c("name_crop_earthstat", "name_country", "name_ai", "name_indication")) %>%
+  mutate(predictionbbch = "pred")
+
+input_appbbch_bbch %>%
+  ggplot(aes(x = bbchgroup, y = dose, color = bbchgroup)) +
+  geom_point()
+
+input_appbbch_crop <- input_appbbch%>%
+  filter(!is.na(`Short Name`))
+table(input_appbbch_crop$application_YN)
+
+input_appbbch_bbch_no <- input_appbbch_bbch %>%
+  filter(is.na(bbchgroup)) %>%
+  filter(name_country_bayer != "CENTRAL AMERICA-CARIBBEAN")
+  group_by(name_country, name_crop_earthstat) %>%
+  summarize(count = n())
+
+
+input_appbbch_bbch_yes <- input_appbbch %>%
+  filter(bbch_YN == "YES") %>%
+  filter(!is.na(`Short Name`)) %>%
+  mutate(bbch_cluster = case_when(name_stagegroup == "00 SEED-DRESSING" ~ "seed",
+                                  name_stagegroup == "0 SOIL" ~ "soil",
+                                  name_refapp == "seed treatment" ~ "seed",
+                                  name_indication == "SEED DRESSING" ~ "seed",
+                                  name_refapp == "soil incorporation" ~ "soil",
+                                  name_cropstage == "0000-SEED-DRESSING" ~ "seed",
+                                  TRUE ~ bbch_specific)) %>%
+  mutate(bbchgroup = case_when(bbch_cluster == "seed" ~ "seed",
+                                      bbch_cluster == "soil" ~ "soil",
+                                      TRUE ~ "crop")) %>%
+  mutate(predictionbbch = "ori")
+input_appbbch_bbchfull <- rbind(input_appbbch_bbch_yes, input_appbbch_bbch)
+
+bbch_n_imputation_combi_result_check <- bbch_n_imputation_combi_result %>%
+  #filter(`Soil incorporationclass` == "1") %>%
+  group_by(Short.Name, name_country, name_ai, name_indication) %>%
+  summarize(count = n())
+
+
+bbch_n_imputation_combi_result_check_c_seed <- bbch_n_imputation_combi_result_check_c_seed %>%
+  mutate(seedyes = "yes")
+bbch_n_imputation_combi_result_check_c_soil <- bbch_n_imputation_combi_result_check_c_soil %>%
+  mutate(soilyes = "yes")
+bbch_n_imputation_combi_result_check_soilseed <- bbch_n_imputation_combi_result_check %>%
+  left_join(bbch_n_imputation_combi_result_check_c_seed, by = c("Short.Name", "name_country", "name_ai", "name_indication")) %>%
+  left_join(bbch_n_imputation_combi_result_check_c_soil, by = c("Short.Name", "name_country", "name_ai", "name_indication")) %>%
+  mutate(bbchgroup = case_when(!is.na(seedyes) ~ "seed",
+                                      !is.na(soilyes) ~ "soil",
+                                      TRUE ~ "crop")) %>%
+  select(Short.Name, name_country, name_ai, name_indication, bbchgroup)
+```
+
+
+
+#conformal prediction application method binary model one against all
+```{r}
+## load the library
+library(mlbench)
+#library(caret)
+library(conformalClassification)
+
+app.n.df <- application_n_imputation_combi %>%
+    filter(!is.na(HDI)) %>%
+    filter(!is.na(landevap)) %>%
+    mutate(Short.Name = `Short Name`) %>%
+    group_by(score, name_region.y, name_crop_earthstat, name_group_yy,  name_chemclass1,name_moagroup, name_indication, HDI, landevap,layer_climate) %>%
+    summarize(count = n()) %>%
+    ungroup() %>%
+    select(-count) #%>%
+
+app.list <- unique(application_imputation_combi$name_refapp)
+#summary(app9099)
+i <-2
+for(i in c(1:length(app.list))){
+  app<- app.list[i]
+  app.df <-  read.csv(paste0("C:/me/data gaps/20221025app_", app, ".csv"))
+  app.n <- app.n.df
+  app.n$ChemPresent <- "null"
+  app.n <- app.n %>%
+    dplyr::select(ChemPresent, score, name_region.y, `Short.Name`, name_group_yy, name_chemclass1, name_moagroup, name_indication, HDI, landevap, layer_climate)
+  app.df <- app.df %>%
+  dplyr::select(ChemPresent, score, name_region.y, `Short.Name`, name_group_yy,  name_chemclass1, name_moagroup, name_indication, HDI, landevap, layer_climate) %>%
+  filter(!is.na(HDI))%>%
+  filter(!is.na(landevap))
+
+  originalData <- app.df
+
+  ## make sure first column is always the label and class labels are always 1, 2, ...
+  originalData[, 1] = as.factor(originalData[, 1])
+  originalData[, 1] = as.numeric(unlist(originalData[, 1]))
+  ## partition the data into training and test set
+  #result = createDataPartition(originalData[, 1], p = 0.7, list = FALSE)
+  #size = nrow(originalData)
+  #result = sample(1:size, 0.8*size)
+  #trainingSet = originalData[result, ]
+  #testSet = originalData[-result, ]
+  #testSet.df <- testSet %>%
+    #mutate(ChemPresent == "null")
+  ##ICP classification
+  #pValues_train = ICPClassification(trainingSet, testSet.df)
+  pValues = ICPClassification(originalData, app.n)
+  #CPCalibrationPlot(pValues, testSet, "blue")
+
+  #testLabels = testSet[,1]
+  #CPEfficiency(pValues, testLabels)
+  #CPErrorRate(pValues, testLabels)
+  #CPValidity(pValues, testLabels)
+
+  pValues.df <- as.data.frame(pValues)
+  pValues.df <- pValues.df %>%
+    mutate(Class = names(.)[max.col(.)])
+  pValues.df$Class <-gsub("V","",as.character(pValues.df$Class))
+  
+  app.n.impute <- cbind(app.n, pValues.df)
+  write.csv(app.n.impute, paste0("app.n.impute_", app, ".csv"))
+  #cm <- as.data.table(table(testSet$ChemPresent, pValues.df$Class))
+  #result <- cbind(testSet, pValues.df)
+  #result <- result %>%
+  #mutate(class1019no = V1, class1019yes = V2, class1019 = Class)
+  #write.csv(result_1019,"20220608result_1019.csv")
+  #result_a <- result %>%
+    #filter(Class == app_cluster)
+  print(i)
+}
+
+app_n_imputation_combi_result <- application_n_imputation_combi %>%
+  filter(!is.na(HDI)) %>%
+  filter(!is.na(landevap))
+write.csv(app_n_imputation_combi_result, "20221110app_n_imputation_combi_result.csv")
+app_n_imputation_combi_result <- read.csv("20221110app_n_imputation_combi_result.csv")
+app_n_imputation_combi_result <- app_n_imputation_combi_result %>%
+  select(-X)
+for(i in c(1:length(app.list))){
+  app<- app.list[i]
+  app.n.impute <-  read.csv(paste0("20221110app.n.impute_", app, ".csv"))
+  app_n_imputation_combi_result <- app_n_imputation_combi_result %>%
+    left_join(app.n.impute, by = c("score","name_region.y", "name_crop_earthstat", "name_group_yy", "name_activeindication",  "name_chemclass1", "name_moagroup", "HDI", "landevap")) %>%
+    mutate("{app}yes" := V2, "{app}no" := V1, "{app}class" := Class) %>%
+    select(-V1, -V2,  -ChemPresent, -Class, -X)
+  print(i)
+  
+}
+
+unique(input_appbbch$name_crop_earthstat)
+
+write.csv(app_n_imputation_combi_result, "20221110app_n_imputation_combi_result_cpp.csv")
+
+app_n_imputation_combi_result_seed <- app_n_imputation_combi_result %>%
+  filter(`Seed treatmentclass` == "2") %>%
+  filter(`Boom sprayerclass` == "1") %>%
+  filter(`Soil incorporationclass` == "1") %>%
+  filter(`Aerial applicationclass` == "1") %>%
+  filter(`Hand operated sprayerclass` == "1") %>%
+  filter(`Tunnel sprayerclass` == "1") 
+
+app_n_imputation_combi_result_soil <- app_n_imputation_combi_result %>%
+  filter(`Seed treatmentclass` == "1") %>%
+  filter(`Boom sprayerclass` == "1") %>%
+  filter(`Soil incorporationclass` == "2") %>%
+  filter(`Aerial applicationclass` == "1") %>%
+  filter(`Hand operated sprayerclass` == "1") %>%
+  filter(`Tunnel sprayerclass` == "1") 
+
+app_n_imputation_combi_result_check <- app_n_imputation_combi_result %>%
+  filter(`Soil incorporationclass` == "1") %>%
+  group_by(Short.Name, name_country, name_ai, name_indication) %>%
+  summarize(count = n())
+app_n_imputation_combi_result_seed_check <- app_n_imputation_combi_result_seed %>%
+  group_by(Short.Name, name_country, name_ai, name_indication) %>%
+  summarize(count = n())
+app_n_imputation_combi_result_check_c_seed <- app_n_imputation_combi_result_check %>%
+  right_join(app_n_imputation_combi_result_seed_check, by = c("Short.Name", "name_country", "name_ai", "name_indication")) %>%
+  filter(is.na(count.x) | is.na(count.y) | count.y > count.x)
+app_n_imputation_combi_result_soil_check <- app_n_imputation_combi_result_soil %>%
+  group_by(Short.Name, name_country, name_ai, name_indication) %>%
+  summarize(count = n())
+app_n_imputation_combi_result_check_c_soil <- app_n_imputation_combi_result_check %>%
+  right_join(app_n_imputation_combi_result_soil_check, by = c("Short.Name", "name_country", "name_ai", "name_indication")) %>%
+  filter(is.na(count.x) | is.na(count.y) | count.y > count.x)
+
+write.csv(app_n_imputation_combi_result_check_c_seed, "20220728onlyseedtreatment.csv")
+write.csv(app_n_imputation_combi_result_check_c_soil, "20220728onlysoilincorporation.csv")
+
+app_n_imputation_combi_result_check <- app_n_imputation_combi_result %>%
+  #filter(`Soil incorporationclass` == "1") %>%
+  group_by(Short.Name, name_country, name_ai, name_indication) %>%
+  summarize(count = n())
+
+
+app_n_imputation_combi_result_check_c_seed <- app_n_imputation_combi_result_check_c_seed %>%
+  mutate(seedyes = "yes")
+app_n_imputation_combi_result_check_c_soil <- app_n_imputation_combi_result_check_c_soil %>%
+  mutate(soilyes = "yes")
+app_n_imputation_combi_result_check_soilseed <- app_n_imputation_combi_result_check %>%
+  left_join(app_n_imputation_combi_result_check_c_seed, by = c("Short.Name", "name_country", "name_ai", "name_indication")) %>%
+  left_join(app_n_imputation_combi_result_check_c_soil, by = c("Short.Name", "name_country", "name_ai", "name_indication")) %>%
+  mutate(applicationgroup = case_when(!is.na(seedyes) ~ "seed",
+                                      !is.na(soilyes) ~ "soil",
+                                      TRUE ~ "crop")) %>%
+  select(Short.Name, name_country, name_ai, name_indication, applicationgroup)
+
+input_appbbch_application <- input_appbbch %>%
+  filter(application_YN == "NO") %>%
+  filter(!is.na(`Short Name`)) %>%
+  left_join(app_n_imputation_combi_result_check_soilseed, by = c("Short Name" = "Short.Name", "name_country", "name_ai", "name_indication"))
+
+input_appbbch_application_no <- input_appbbch_application %>%
+  filter(is.na(applicationgroup)) %>%
+  group_by(name_country, `Short Name`) %>%
+  summarize(count = n())
+
+input_appbbch_application_yes <- input_appbbch %>%
+  filter(application_YN == "YES") %>%
+  filter(!is.na(`Short Name`)) %>%
+  mutate(applicationgroup = case_when(name_refapp == "seed treatment" ~ "seed",
+                                      name_refapp == "soil incorporation" ~ "soil",
+                                      TRUE ~ "crop"))
+input_appbbch_applicationfull <- rbind(input_appbbch_application_yes, input_appbbch_application)
+
+input_appbbch_bbch <- input_appbbch %>%
+  filter(bbch_YN == "NO") %>%
+  filter(!is.na(`Short Name`)) %>%
+  left_join(bbch_n_imputation_combi_result_check_soilseed, by = c("Short Name" = "Short.Name", "name_country", "name_ai", "name_indication"))
+
+input_appbbch_bbch_no <- input_appbbch_bbch %>%
+  filter(is.na(bbchgroup)) %>%
+  group_by(name_country, `Short Name`) %>%
+  summarize(count = n())
+
+input_appbbch_bbch_yes <- input_appbbch %>%
+  filter(bbch_YN == "YES") %>%
+  filter(!is.na(`Short Name`)) %>%
+  mutate(bbchgroup = case_when(name_stagegroup == "00 SEED-DRESSING" ~ "seed",
+                              name_stagegroup == "0 SOIL" ~ "soil",
+                              name_cropstage == "0000-SEED-DRESSING" ~ "seed",
+                              TRUE ~ "crop"))
+input_appbbch_bbchfull <- rbind(input_appbbch_bbch_yes, input_appbbch_bbch)
+
+input_appbbch_full <- input_appbbch_applicationfull %>%
+  full_join(input_appbbch_bbchfull, by = c("Year","name_region.x", "name_country_bayer", "name_indication", "name_activetype", "name_ai_bayer", "name_activegroup", "name_cropmaingroup","name_cropgroup_bayer", "name_crop_bayer", "name_moa", "name_app", "name_cropstage", "name_stagegroup", "name_activeindication", "casrn_chemical_bayer", "name_source", "treated_area_kha", "applied_mass_kkg", "dose_kgperha", "code_country", "name_country", "name_region.y", "name_crop", "spring_winter", "remarks", "name_crop_earthstat", "name_crop_FAO", "name_cropgroup", "gene", "name_ai", "casrn_chemical", "name_chemclass", "name_chemclass1", "name_moagroup", "code_bbch", "min", "max", "bbch_group", "bbch_specific", "bbch_cluster", "name_refapp", "dose", "dosediff", "dosediffis", "bbch_YN", "application_YN", "Short Name", "name_group_yy"))
+
+write.csv(input_appbbch_full, "20220728input_appbbch_full.csv")
+
+##ICP classification
+pValues = ICPClassification(trainingSet, testSet)
+CPCalibrationPlot(pValues, testSet, "blue")
+#ggsave("20220615calibrationplot_boomsprayer.png")
+
+testLabels = testSet[,1]
+CPEfficiency(pValues, testLabels)
+CPErrorRate(pValues, testLabels)
+CPValidity(pValues, testLabels)
+
+#CPEfficiency(pValues, testLabels, sigfLevel = 0.01)
+#CPErrorRate(pValues, testLabels, sigfLevel = 0.01)
+
+
+#pValues2 = ICPClassification(trainingSet, testSet, ratioTrain = 0.7, method = "rf",nrTrees = 100)
+#perfVlaues = pValues2PerfMetrics(pValues, testSet)
+#print(perfVlaues)
+#CPCalibrationPlot(pValues, testSet, "blue")
+
+pValues.df <- as.data.frame(pValues)
+#pValues.df <- pValues.df %>%
+  #mutate(Class = names(.)[max.col(.)])
+#pValues.df$Class <-gsub("V","",as.character(pValues.df$Class))
+result_boomsprayer <- cbind(testSet, pValues.df)
+result_boomsprayer <- result_boomsprayer %>%
+  mutate(boomsprayerno = V1, boomsprayeryes = V2)
+write.csv(result_boomsprayer,"20220615result_boomsprayer.csv")
+
+result_aerialapplication_p <- result_aerialapplication %>%
+  mutate(aerialapplication = case_when(aerialapplicationno < 0.05 & aerialapplicationyes < 0.05 ~ "both p < 0.05",
+                                       aerialapplicationno >= 0.05 & aerialapplicationyes >= 0.05 ~ "both p >= 0.05",
+                                       aerialapplicationno >= 0.05 & aerialapplicationno > aerialapplicationyes ~ "1",
+                                       aerialapplicationyes >= 0.05 & aerialapplicationyes > aerialapplicationno ~ "2"))
+
+result_boomsprayer_p <- result_boomsprayer %>%
+  mutate(boomsprayer = case_when(boomsprayerno < 0.05 & boomsprayeryes < 0.05 ~ "both p < 0.05",
+                                       boomsprayerno >= 0.05 & boomsprayeryes >= 0.05 ~ "both p >= 0.05",
+                                       boomsprayerno >= 0.05 & boomsprayerno > boomsprayeryes ~ "1",
+                                       boomsprayeryes >= 0.05 & boomsprayeryes > boomsprayerno ~ "2"))
+
+result_handoperatedsprayer_p <- result_handoperatedsprayer %>%
+  mutate(handoperatedsprayer = case_when(handoperatedsprayerno < 0.05 & handoperatedsprayeryes < 0.05 ~ "both p < 0.05",
+                                       handoperatedsprayerno >= 0.05 & handoperatedsprayeryes >= 0.05 ~ "both p >= 0.05",
+                                       handoperatedsprayerno >= 0.05 & handoperatedsprayerno > handoperatedsprayeryes ~ "1",
+                                       handoperatedsprayeryes >= 0.05 & handoperatedsprayeryes > handoperatedsprayerno ~ "2"))
+
+result_seedtreatment_p <- result_seedtreatment %>%
+  mutate(seedtreatment = case_when(seedtreatmentno < 0.05 & seedtreatmentyes < 0.05 ~ "both p < 0.05",
+                                       seedtreatmentno >= 0.05 & seedtreatmentyes >= 0.05 ~ "both p >= 0.05",
+                                       seedtreatmentno >= 0.05 & seedtreatmentno > seedtreatmentyes ~ "1",
+                                       seedtreatmentyes >= 0.05 & seedtreatmentyes > seedtreatmentno ~ "2"))
+
+result_soilincorporation_p <- result_soilincorporation %>%
+  mutate(soilincorporation = case_when(soilincorporationno < 0.05 & soilincorporationyes < 0.05 ~ "both p < 0.05",
+                                       soilincorporationno >= 0.05 & soilincorporationyes >= 0.05 ~ "both p >= 0.05",
+                                       soilincorporationno >= 0.05 & soilincorporationno > soilincorporationyes ~ "1",
+                                       soilincorporationyes >= 0.05 & soilincorporationyes > soilincorporationno ~ "2"))
+
+result_tunnelsprayer_p <- result_tunnelsprayer %>%
+  mutate(tunnelsprayer = case_when(tunnelsprayerno < 0.05 & tunnelsprayeryes < 0.05 ~ "both p < 0.05",
+                                       tunnelsprayerno >= 0.05 & tunnelsprayeryes >= 0.05 ~ "both p >= 0.05",
+                                       tunnelsprayerno >= 0.05 & tunnelsprayerno > tunnelsprayeryes ~ "1",
+                                       tunnelsprayeryes >= 0.05 & tunnelsprayeryes > tunnelsprayerno ~ "2"))
+
+result_aerialapplication_cm <- result_aerialapplication_p %>%
+  group_by(ChemPresent, aerialapplication) %>%
+  summarize(count = n())
+
+result_boomsprayer_cm <- result_boomsprayer_p %>%
+  group_by(ChemPresent, boomsprayer) %>%
+  summarize(count = n())
+
+result_handoperatedsprayer_cm <- result_handoperatedsprayer_p %>%
+  group_by(ChemPresent, handoperatedsprayer) %>%
+  summarize(count = n())
+
+result_seedtreatment_cm <- result_seedtreatment_p %>%
+  group_by(ChemPresent, seedtreatment) %>%
+  summarize(count = n())
+
+result_soilincorporation_cm <- result_soilincorporation_p %>%
+  group_by(ChemPresent, soilincorporation) %>%
+  summarize(count = n())
+
+result_tunnelsprayer_cm <- result_tunnelsprayer_p %>%
+  group_by(ChemPresent, tunnelsprayer) %>%
+  summarize(count = n())
+
+
+result_aerialapplication_p <- result_aerialapplication_p %>%
+  mutate(aerialapplication_orig = ChemPresent) %>%
+  select(-ChemPresent, -V1, -V2)
+result_boomsprayer_p <- result_boomsprayer_p %>%
+  mutate(boomsprayer_orig = ChemPresent) %>%
+  select(-ChemPresent, -V1, -V2)
+result_handoperatedsprayer_p <- result_handoperatedsprayer_p %>%
+  mutate(handoperatedsprayer_orig = ChemPresent) %>%
+  select(-ChemPresent, -V1, -V2)
+result_seedtreatment_p <- result_seedtreatment_p %>%
+  mutate(seedtreatment_orig = ChemPresent) %>%
+  select(-ChemPresent, -V1, -V2)
+result_soilincorporation_p <- result_soilincorporation_p %>%
+  mutate(soilincorporation_orig = ChemPresent) %>%
+  select(-ChemPresent, -V1, -V2)
+result_tunnelsprayer_p <- result_tunnelsprayer_p %>%
+  mutate(tunnelsprayer_orig = ChemPresent) %>%
+  select(-ChemPresent, -V1, -V2)
+
+result_full_app_p <- result_aerialapplication_p %>%
+  full_join(result_boomsprayer_p, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_chemclass1", "name_moagroup", "name_indication", "HDI", "landevap", "layer_climate")) %>%
+  full_join(result_handoperatedsprayer_p, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_chemclass1", "name_moagroup", "name_indication", "HDI", "landevap", "layer_climate")) %>%
+  full_join(result_seedtreatment_p, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_chemclass1", "name_moagroup", "name_indication", "HDI", "landevap", "layer_climate")) %>%
+  full_join(result_soilincorporation_p, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_chemclass1", "name_moagroup", "name_indication", "HDI", "landevap", "layer_climate")) %>%
+  full_join(result_tunnelsprayer_p, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_chemclass1", "name_moagroup", "name_indication", "HDI", "landevap", "layer_climate"))
+
+country_score <- application_imputation_combi %>%
+  group_by(name_country, score, name_crop_earthstat, name_cropgroup, name_indication, layer_climate, HDI, landevap, name_chemclass1, name_moagroup) %>%
+  summarize(n = n())
+
+result_full_app_p_country <- read_csv("C:/me/data gaps/20220615result_full_app_p.csv")
+result_full_app_p_country <- result_full_app_p %>%
+  left_join(country_score, by = c("score", "name_crop_earthstat", "name_cropgroup", "name_chemclass1", "name_moagroup", "name_indication", "HDI", "landevap", "layer_climate"))
+
+application_imputation_noapp <- application_imputation %>%
+  group_by(name_country,name_crop_earthstat, name_cropgroup, name_ai, name_chemclass1, name_moagroup, name_indication) %>%
+  summarize(n = n())
+
+chemical_casrn <- input_app %>%
+  group_by(name_ai, casrn_chemical) %>%
+  summarize(count = n())
+
+result_full_app_p_country_chemical <- application_imputation_noapp %>%
+  left_join(result_full_app_p_country, by = c("name_country", "name_crop_earthstat", "name_cropgroup", "name_chemclass1", "name_moagroup", "name_indication")) %>%
+  filter(!is.na(boomsprayer))
+
+cpp_prob_4_perc_full1 <- read.csv("20220706cpp_prob_4_perc_full.csv")
+cpp4_full_app_p_country_chemical <- cpp_prob_4_perc_full1 %>%
+  left_join(application_imputation_noapp, by = c("name_country", "name_crop_earthstat", "name_cropgroup", "name_chemclass1", "name_moagroup", "name_indication")) #%>%
+  filter(!is.na(boomsprayer))
+
+result_full_app_p_country_chemical <- result_full_app_p_country_chemical %>%
+  left_join(chemical_casrn,by = c("name_ai"))
+
+
+cpp4_full_app_p_country_chemical <- cpp4_full_app_p_country_chemical %>%
+  left_join(chemical_casrn,by = c("name_ai"))
+
+write.csv(cpp4_full_app_p_country_chemical, "20220706cpp4_full_app_p_country_chemical.csv")
+
+cpp_prob_3_perc_full1 <- read.csv("20220708cpp_prob_3_perc_full.csv")
+cpp3_full_app_p_country_chemical <- cpp_prob_3_perc_full1 %>%
+  left_join(application_imputation_noapp, by = c("name_country", "name_crop_earthstat", "name_cropgroup", "name_chemclass1", "name_moagroup", "name_indication")) #%>%
+  filter(!is.na(boomsprayer))
+  
+cpp3_full_app_p_country_chemical <- application_imputation_noapp %>%
+  left_join(cpp_prob_3_perc_full1, by = c("name_country", "name_crop_earthstat", "name_cropgroup", "name_chemclass1", "name_moagroup", "name_indication"))
+
+result_full_app_p_country_chemical <- result_full_app_p_country_chemical %>%
+  left_join(chemical_casrn,by = c("name_ai"))
+
+
+cpp3_full_app_p_country_chemical <- cpp3_full_app_p_country_chemical %>%
+  left_join(chemical_casrn,by = c("name_ai"))
+
+write.csv(cpp3_full_app_p_country_chemical, "20220719cpp3_full_app_p_country_chemical.csv")
+
+write.csv(result_full_app_p_country_chemical, "20220617result_full_app_p_countrychem.csv")
+
+result_full_app_ana <- result_full_app_p_country %>%
+  group_by(name_crop_earthstat, name_chemclass1, name_moagroup, name_indication, name_country, layer_climate) %>%
+  summarize(boomsprayer = n_distinct(aerialapplication))
+
+write.csv(result_full_app_p_country, "20220615result_full_app_p.csv")
+
+result_full_app_perc <- result_full_app_p %>%
+  mutate(aerialapplicationp = as.numeric(case_when(aerialapplicationyes >= 0.05 ~ aerialapplicationyes,
+                                        aerialapplicationyes < 0.05 ~ 0)),
+         boomsprayerp = as.numeric(case_when(boomsprayeryes >= 0.05 ~ boomsprayeryes,
+                                        boomsprayeryes < 0.05 ~ 0)),
+         handoperatedsprayerp = as.numeric(case_when(handoperatedsprayeryes >= 0.05 ~ handoperatedsprayeryes,
+                                        handoperatedsprayeryes < 0.05 ~ 0)),
+         tunnelsprayerp = as.numeric(case_when(tunnelsprayeryes >= 0.05 ~ tunnelsprayeryes,
+                                        tunnelsprayeryes < 0.05 ~ 0)),
+         seedtreatmentp = as.numeric(case_when(seedtreatmentyes >= 0.05 ~ seedtreatmentyes,
+                                        seedtreatmentyes < 0.05 ~ 0)),
+         soilincorporationp = as.numeric(case_when(soilincorporationyes >= 0.05 ~ soilincorporationyes,
+                                        soilincorporationyes < 0.05 ~ 0))) %>%
+  mutate(countcrop = rowSums(.[34:37]!=0)) %>%
+  mutate(countall = rowSums(.[34:39]!=0)) %>%
+  mutate(croptreatmentp = rowSums(.[34:37])/countcrop) %>%
+  mutate(aerialapplicationperc = aerialapplicationp/rowSums(.[34:37]),
+         boomsprayerperc = boomsprayerp/rowSums(.[34:37]),
+         handoperatedsprayerperc = handoperatedsprayerp/rowSums(.[34:37]),
+         tunnelsprayerperc = tunnelsprayerp/rowSums(.[34:37]))
+
+write.csv(result_full_app_perc, "20220601result_full_app_perc.csv")
+
+aerialboom <- result_full_app_p %>%
+  filter(aerialapplicationyes > 0.5 & boomsprayeryes > 0.5)
+
+aerialyesno <- result_full_app_p %>%
+  group_by(score, name_crop_earthstat, name_cropgroup, name_chemclass1, name_moagroup, name_indication) %>%
+  summarize(countaerial = n_distinct(aerialapplication))
+
+result_full_a <- result_full %>%
+  select(name_country, name_crop_earthstat, name_cropgroup, name_chemclass1, name_moagroup, name_indication, HDI, landevap, layer_climate, class0009no, class0009yes, chem0009, class1019no, class1019yes, chem1019, class2029no, class2029yes, chem2029, class3039no, class3039yes, chem3039, class4049no, class4049yes, chem4049,class5059no, class5059yes, chem5059,class6069no, class6069yes, chem6069,class7079no, class7079yes, chem7079,class8089no, class8089yes, chem8089,class9099no, class9099yes, chem9099,class9900no, class9900yes, chem9900,class1092no, class1092yes, chem1092)
+```
+
+#country level imputation for application method, also using earthstat crop name
+```{r}
+
+## load the library
+library(mlbench)
+#library(caret)
+library(conformalClassification)
+
+app.n.df <- application_n_imputation_combi %>%
+    filter(!is.na(HDI)) %>%
+    filter(!is.na(landevap)) %>%
+    #mutate(Short.Name = `Short Name`) %>%
+    group_by(score, name_region.y, name_crop_earthstat, name_group_yy,  name_chemclass1,name_moagroup, name_activeindication, HDI, landevap) %>%
+    summarize(count = n()) %>%
+    ungroup() %>%
+    select(-count) #%>%
+
+app.list <- unique(application_imputation_combi$name_refapp_adj)
+
+dat.out_0.05 <- matrix(data = "X", nrow = length(app.list), ncol = 8, dimnames = list(NULL, c("BBCH", "No_ActualNo", "Yes_ActualNo", "No_ActualYes",
+                                                                                               "Yes_ActualYes", "out of prediction","No_Accuracy", "Yes_Accuracy")))
+dat.out_0.1 <- matrix(data = "X", nrow = length(app.list), ncol = 8, dimnames = list(NULL, c("BBCH", "No_ActualNo", "Yes_ActualNo", "No_ActualYes",
+                                                                                               "Yes_ActualYes", "out of prediction","No_Accuracy", "Yes_Accuracy")))
+
+dat.out_0.01 <- matrix(data = "X", nrow = length(app.list), ncol = 8, dimnames = list(NULL, c("BBCH", "No_ActualNo", "Yes_ActualNo", "No_ActualYes",
+                                                                                               "Yes_ActualYes", "out of prediction","No_Accuracy", "Yes_Accuracy")))
+dat.out_0.2 <- matrix(data = "X", nrow = length(app.list), ncol = 8, dimnames = list(NULL, c("BBCH", "No_ActualNo", "Yes_ActualNo", "No_ActualYes",
+                                                                                               "Yes_ActualYes", "out of prediction","No_Accuracy", "Yes_Accuracy")))
+dat.out_0.15 <- matrix(data = "X", nrow = length(app.list), ncol = 8, dimnames = list(NULL, c("BBCH", "No_ActualNo", "Yes_ActualNo", "No_ActualYes",
+                                                                                               "Yes_ActualYes", "out of prediction","No_Accuracy", "Yes_Accuracy")))
+
+#summary(app9099)
+i <-2
+for(i in c(1:length(app.list))){
+  app<- app.list[i]
+  app.df <-  read.csv(paste0("C:/me/data gaps/20221110app_country", app, ".csv"))
+  app.n <- app.n.df
+  app.n$ChemPresent <- "null"
+  app.n <- app.n %>%
+    dplyr::select(ChemPresent, score, name_region.y, name_crop_earthstat, name_group_yy, name_chemclass1, name_moagroup, name_activeindication, HDI, landevap)
+  app.df <- app.df %>%
+  dplyr::select(ChemPresent, score, name_region.y, name_crop_earthstat, name_group_yy,  name_chemclass1, name_moagroup, name_activeindication, HDI, landevap) %>%
+  filter(!is.na(HDI))%>%
+  filter(!is.na(landevap))
+
+  originalData <- app.df
+
+  ## make sure first column is always the label and class labels are always 1, 2, ...
+  originalData[, 1] = as.factor(originalData[, 1])
+  originalData[, 1] = as.numeric(unlist(originalData[, 1]))
+  ## partition the data into training and test set
+  #result = createDataPartition(originalData[, 1], p = 0.7, list = FALSE)
+  #size = nrow(originalData)
+  #result = sample(1:size, 0.8*size)
+  #trainingSet = originalData[result, ]
+  #testSet = originalData[-result, ]
+  #testSet.df <- testSet %>%
+   #mutate(ChemPresent = "null") %>%
+    #dplyr::select(ChemPresent, score, name_region.y, name_crop_earthstat, name_group_yy,  name_chemclass1, name_moagroup, name_activeindication, HDI, landevap)
+  ##ICP classification
+  #pValues_train = ICPClassification(trainingSet, testSet.df)
+  #pValues = ICPClassification(originalData, app.n)
+  #CPCalibrationPlot(pValues_train, testSet, "blue")
+
+  bootstrap_preds_yes <- matrix(data = "X", nrow = nrow(app.n), ncol = 10)
+  bootstrap_preds_no <- matrix(data = "X", nrow = nrow(app.n), ncol = 10)
+  
+  for(b in c(1:10)){
+    #train_idxs = sample(seq(n),size = n, replace = TRUE)
+    #originalData_r <- trainingSet
+    originalData_r <- originalData
+    pValues = ICPClassification(originalData_r, app.n, ratioTrain = 0.7, method = "rf", nrTrees = 100)
+    for(j in c(1:nrow(app.n))){
+      bootstrap_preds_no[j,b] = pValues[j,1]
+      bootstrap_preds_yes[j,b] = pValues[j,2]
+      #print(i)
+    }
+    print(b)
+  }
+  
+  # bootstrap_preds_no.df <- as.data.frame(bootstrap_preds_no)
+  # bootstrap_preds_no.df10 <- bootstrap_preds_no.df[1:20,]
+  # bootstrap_preds_no.df <- bootstrap_preds_no.df %>%
+  #   mutate_if(is.character, as.numeric) #%>%
+  #   rowwise() %>%
+  #   mutate(median = median(c_across(where(is.numeric)), na.rm = TRUE))
+  # percentile_boot_no <- bootstrap_preds_no.df %>%
+  #   bind_cols(as.data.frame(t(apply(., 1, quantile, c(0.05, 0.95)))))
+  # percentile_boot_no <- percentile_boot_no %>%
+  #   mutate(no0.05 = `5%`, no0.95 = `95%`) %>%
+  #   dplyr::select(no0.05, no0.95)
+  # bootstrap_preds_no_median <- bootstrap_preds_no.df %>%
+  #   rowwise() %>%
+  #   mutate(median = median(c_across(where(is.numeric)), na.rm = TRUE))
+  # percentile_median_no <- cbind(percentile_boot_no, bootstrap_preds_no_median$median)
+  
+  
+  
+  bootstrap_preds_yes.df <- as.data.frame(bootstrap_preds_yes)
+  bootstrap_preds_yes.df <- bootstrap_preds_yes.df %>%
+    mutate_if(is.character, as.numeric)
+  percentile_boot_yes10 <- bootstrap_preds_yes.df %>%
+    bind_cols(as.data.frame(t(apply(., 1, quantile, c(0.025, 0.975)))))
+  percentile_boot_yes <- percentile_boot_yes10 %>%
+    mutate(yes0.025 = `2.5%`, yes0.975 = `97.5%`) %>%
+    select(yes0.025, yes0.975)
+  bootstrap_preds_yes_median <- bootstrap_preds_yes.df %>%
+    rowwise() %>%
+    mutate(medianyes = median(c_across(where(is.numeric)), na.rm = TRUE))
+  #percentile_median_yes <- cbind(testSet.df, percentile_boot_yes, bootstrap_preds_yes_median) #%>%
+    #filter(median > 0.05)
+  #write.csv(percentile_median_yes, "20221020percentile_median_yes.csv")
+  
+  bootstrap_preds_no.df <- as.data.frame(bootstrap_preds_no)
+  bootstrap_preds_no.df <- bootstrap_preds_no.df %>%
+    mutate_if(is.character, as.numeric)
+  percentile_boot_no10 <- bootstrap_preds_no.df %>%
+    bind_cols(as.data.frame(t(apply(., 1, quantile, c(0.025, 0.975)))))
+  percentile_boot_no <- percentile_boot_no10 %>%
+    mutate(no0.025 = `2.5%`, no0.975 = `97.5%`) %>%
+    select(no0.025, no0.975)
+  bootstrap_preds_no_median <- bootstrap_preds_no.df %>%
+    rowwise() %>%
+    mutate(medianno = median(c_across(where(is.numeric)), na.rm = TRUE))
+  percentile_median <- cbind(app.n, percentile_boot_no, percentile_boot_yes, bootstrap_preds_no_median, bootstrap_preds_yes_median) #%>%
+    #filter(median > 0.05)
+  write.csv(percentile_median, paste0("20221110app_percentile_median_no", app,".csv"))
+  
+  #generating prediction yes no results
+  #CPCalibrationPlot(pValues_train, testSet, "blue")
+  
+  #testLabels = testSet.df[,1]
+  # CPEfficiency_0.05 <- CPEfficiency(pValues_train, testLabels,sigfLevel = 0.05)
+  # CPErrorRate_0.05 <- CPErrorRate(pValues_train, testLabels, sigfLevel = 0.05)
+  # CPEfficiency_0.01 <- CPEfficiency(pValues_train, testLabels,sigfLevel = 0.01)
+  # CPErrorRate_0.01 <- CPErrorRate(pValues_train, testLabels,sigfLevel = 0.01)
+  # CPEfficiency_0.1 <- CPEfficiency(pValues_train, testLabels,sigfLevel = 0.1)
+  # CPErrorRate_0.1 <- CPErrorRate(pValues_train, testLabels,sigfLevel = 0.1)
+  # CPEfficiency_0.2 <- CPEfficiency(pValues_train, testLabels,sigfLevel = 0.2)
+  # CPErrorRate_0.2 <- CPErrorRate(pValues_train, testLabels,sigfLevel = 0.2)
+  # CPEfficiency_0.15 <- CPEfficiency(pValues_train, testLabels,sigfLevel = 0.15)
+  # CPErrorRate_0.15 <- CPErrorRate(pValues_train, testLabels,sigfLevel = 0.15)
+  #CPValidity(pValues_train, testLabels)
+  
+  #pValues.df <- as.data.frame(pValues)
+  #pValues.df <- pValues.df %>%
+    #mutate(Class = names(.)[max.col(.)])
+  #pValues.df$Class <-gsub("V","",as.character(pValues.df$Class))
+  
+  pValues.df <- percentile_median %>%
+    select(medianyes, medianno) %>%
+    mutate(V1 = medianno, V2 = medianyes) %>%
+    select(-medianyes, -medianno)
+  
+  pValues.df <- pValues.df %>%
+    mutate(Class = names(.)[max.col(.)])
+  pValues.df$Class <-gsub("V","",as.character(pValues.df$Class))
+  sig <- 0.05
+  pValues.df.pred_0.05 <- pValues.df %>%
+    mutate(chemPred = case_when(#V1 >= sig & V2 >= sig ~ "both p >= sig",
+                                V1 < sig & V2 < sig ~ "both p < sig",
+                                V1 >= sig & V2 < V1 ~ "V1",
+                                V2 >= sig & V2 > V1 ~ "V2"))
+                                #V2 < V1 ~ "V1",
+                                #V2 > V1 ~ "V2"))
+  #write.csv(pValues.df.pred_0.05, paste0("20221110pValues.df.pred_0.05", app,".csv"))
+  # sig <- 0.01
+  # pValues.df.pred_0.01 <- pValues.df %>%
+  #   mutate(chemPred = case_when(#V1 >= sig & V2 >= sig ~ "both p >= sig",
+  #                               #V1 < sig & V2 < sig ~ "both p < sig",
+  #                               #V1 >= sig & V2 < V1 ~ "V1",
+  #                               #V2 >= sig & V2 > V1 ~ "V2"))
+  #                               V2 < V1 ~ "V1",
+  #                               V2 > V1 ~ "V2"))
+  # sig <- 0.1
+  # pValues.df.pred_0.1 <- pValues.df %>%
+  #   mutate(chemPred = case_when(#V1 >= sig & V2 >= sig ~ "both p >= sig",
+  #                               #V1 < sig & V2 < sig ~ "both p < sig",
+  #                               #V1 >= sig & V2 < V1 ~ "V1",
+  #                               #V2 >= sig & V2 > V1 ~ "V2"))
+  #                               V2 < V1 ~ "V1",
+  #                               V2 > V1 ~ "V2"))
+  # sig <- 0.2
+  # pValues.df.pred_0.2 <- pValues.df %>%
+  #   mutate(chemPred = case_when(#V1 >= sig & V2 >= sig ~ "both p >= sig",
+  #                               #V1 < sig & V2 < sig ~ "both p < sig",
+  #                               #V1 >= sig & V2 < V1 ~ "V1",
+  #                               #V2 >= sig & V2 > V1 ~ "V2"))
+  #                               V2 < V1 ~ "V1",
+  #                               V2 > V1 ~ "V2"))
+  # sig <- 0.15
+  # pValues.df.pred_0.15 <- pValues.df %>%
+  #   mutate(chemPred = case_when(#V1 >= sig & V2 >= sig ~ "both p >= sig",
+  #                               #V1 < sig & V2 < sig ~ "both p < sig",
+  #                               #V1 >= sig & V2 < V1 ~ "V1",
+  #                               #V2 >= sig & V2 > V1 ~ "V2"))
+  #                               V2 < V1 ~ "V1",
+  #                               V2 > V1 ~ "V2"))
+  # #bbch.n.impute <- cbind(bbch.n, pValues.df)
+  # #write.csv(bbch.n.impute, paste0("20220810bbch.n.impute_", bbch, ".csv"))
+  # cm_0.05 <- as.data.table(table(testSet$ChemPresent, pValues.df.pred_0.05$chemPred))
+  # val.out_0.05 <- c(app,
+  #              cm_0.05[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.05[V1 == "1" & V2 == "V2"]$N,
+  #              cm_0.05[V1 == "2" & V2 == "V1"]$N,
+  #              cm_0.05[V1 == "2" & V2 == "V2"]$N,
+  #              nrow(testSet) - cm_0.05[V1 == "2" & V2 == "V2"]$N - cm_0.05[V1 == "2" & V2 == "V1"]$N - cm_0.05[V1 == "1" & V2 == "V2"]$N - cm_0.05[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.05[V1 == "1" & V2 == "V1"]$N/length(which(testSet$ChemPresent == "1")),
+  #              cm_0.05[V1 == "2" & V2 == "V2"]$N/length(which(testSet$ChemPresent == "2")))
+  # 
+  # cm_0.01 <- as.data.table(table(testSet$ChemPresent, pValues.df.pred_0.01$chemPred))
+  # val.out_0.01 <- c(app,
+  #              cm_0.01[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.01[V1 == "1" & V2 == "V2"]$N,
+  #              cm_0.01[V1 == "2" & V2 == "V1"]$N,
+  #              cm_0.01[V1 == "2" & V2 == "V2"]$N,
+  #              nrow(testSet) - cm_0.01[V1 == "2" & V2 == "V2"]$N - cm_0.01[V1 == "2" & V2 == "V1"]$N - cm_0.01[V1 == "1" & V2 == "V2"]$N - cm_0.01[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.01[V1 == "1" & V2 == "V1"]$N/length(which(testSet$ChemPresent == "1")),
+  #              cm_0.01[V1 == "2" & V2 == "V2"]$N/length(which(testSet$ChemPresent == "2")))
+  # 
+  # cm_0.1 <- as.data.table(table(testSet$ChemPresent, pValues.df.pred_0.1$chemPred))
+  # val.out_0.1 <- c(app,
+  #              cm_0.1[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.1[V1 == "1" & V2 == "V2"]$N,
+  #              cm_0.1[V1 == "2" & V2 == "V1"]$N,
+  #              cm_0.1[V1 == "2" & V2 == "V2"]$N,
+  #              nrow(testSet) - cm_0.1[V1 == "2" & V2 == "V2"]$N - cm_0.1[V1 == "2" & V2 == "V1"]$N - cm_0.1[V1 == "1" & V2 == "V2"]$N - cm_0.1[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.1[V1 == "1" & V2 == "V1"]$N/length(which(testSet$ChemPresent == "1")),
+  #              cm_0.1[V1 == "2" & V2 == "V2"]$N/length(which(testSet$ChemPresent == "2")))
+  # 
+  # cm_0.2 <- as.data.table(table(testSet$ChemPresent, pValues.df.pred_0.2$chemPred))
+  # val.out_0.2 <- c(app,
+  #              cm_0.2[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.2[V1 == "1" & V2 == "V2"]$N,
+  #              cm_0.2[V1 == "2" & V2 == "V1"]$N,
+  #              cm_0.2[V1 == "2" & V2 == "V2"]$N,
+  #              nrow(testSet) - cm_0.2[V1 == "2" & V2 == "V2"]$N - cm_0.2[V1 == "2" & V2 == "V1"]$N - cm_0.2[V1 == "1" & V2 == "V2"]$N - cm_0.2[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.2[V1 == "1" & V2 == "V1"]$N/length(which(testSet$ChemPresent == "1")),
+  #              cm_0.2[V1 == "2" & V2 == "V2"]$N/length(which(testSet$ChemPresent == "2")))
+  # 
+  # cm_0.15 <- as.data.table(table(testSet$ChemPresent, pValues.df.pred_0.15$chemPred))
+  # val.out_0.15 <- c(app,
+  #              cm_0.15[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.15[V1 == "1" & V2 == "V2"]$N,
+  #              cm_0.15[V1 == "2" & V2 == "V1"]$N,
+  #              cm_0.15[V1 == "2" & V2 == "V2"]$N,
+  #              nrow(testSet) - cm_0.15[V1 == "2" & V2 == "V2"]$N - cm_0.15[V1 == "2" & V2 == "V1"]$N - cm_0.15[V1 == "1" & V2 == "V2"]$N - cm_0.15[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.15[V1 == "1" & V2 == "V1"]$N/length(which(testSet$ChemPresent == "1")),
+  #              cm_0.15[V1 == "2" & V2 == "V2"]$N/length(which(testSet$ChemPresent == "2")))
+  #result <- cbind(testSet, pValues.df)
+  #result <- result %>%
+  #mutate(class1019no = V1, class1019yes = V2, class1019 = Class)
+  #write.csv(result_1019,"20220608result_1019.csv")
+  #result_a <- result %>%
+    #filter(Class == bbch_cluster)
+  # dat.out_0.05[i,] <- val.out_0.05
+  # dat.out_0.1[i,] <- val.out_0.1
+  # dat.out_0.01[i,] <- val.out_0.01
+  # dat.out_0.2[i,] <- val.out_0.2
+  # dat.out_0.15[i,] <- val.out_0.15
+  print(i)
+  
+  app.n.impute <- cbind(app.n, pValues.df.pred_0.05)
+  write.csv(app.n.impute, paste0("20221110app.n.impute_", app, ".csv"))
+  #cm <- as.data.table(table(testSet$ChemPresent, pValues.df$Class))
+  #result <- cbind(testSet, pValues.df)
+  #result <- result %>%
+  #mutate(class1019no = V1, class1019yes = V2, class1019 = Class)
+  #write.csv(result_1019,"20220608result_1019.csv")
+  #result_a <- result %>%
+    #filter(Class == app_cluster)
+  #print(i)
+}
+
+dat.out_0.05 <- as.data.frame(dat.out_0.05)
+dat.out_0.05$sigf <- 0.05
+
+dat.out_0.01 <- as.data.frame(dat.out_0.01)
+dat.out_0.01$sigf <- 0.01
+
+dat.out_0.1 <- as.data.frame(dat.out_0.1)
+dat.out_0.1$sigf <- 0.1
+
+dat.out_0.2 <- as.data.frame(dat.out_0.2)
+dat.out_0.2$sigf <- 0.2
+
+dat.out_0.15 <- as.data.frame(dat.out_0.15)
+dat.out_0.15$sigf <- 0.15
+
+app_pred_sigf <- rbind(dat.out_0.01, dat.out_0.05, dat.out_0.1, dat.out_0.15,dat.out_0.2)
+
+app_pred_sigf$No_Accuracy <- as.numeric(app_pred_sigf$No_Accuracy)
+app_pred_sigf$Yes_Accuracy <- as.numeric(app_pred_sigf$Yes_Accuracy)
+app_pred_sigf$CPEfficiency <- as.numeric(app_pred_sigf$CPEfficiency)
+app_pred_sigf$CPErrorRate <- as.numeric(app_pred_sigf$CPErrorRate)
+app_pred_sigf$`out of prediction` <- as.numeric(app_pred_sigf$`out of prediction`)
+app_pred_sigf$sigf <- as.factor(app_pred_sigf$sigf)
+
+app_pred_sigf %>%
+  ggplot(aes(x = app, color = sigf, group = sigf)) +
+  geom_point(aes(y = No_Accuracy)) +
+  geom_line(aes(y = No_Accuracy))
+
+app_pred_sigf_long <- melt(app_pred_sigf, id.vars = c("BBCH", "sigf"),measure.vars = c("No_Accuracy", "Yes_Accuracy", "out of prediction"), variable.name = "performance")
+app_pred_sigf_long$value <- as.numeric(app_pred_sigf_long$value)
+
+app_pred_sigf_long %>%
+  #ggplot(aes(x = BBCH, color = sigf, group = sigf)) +
+  ggplot(aes(x = BBCH)) +
+  geom_point(aes(y = value)) +
+  #geom_line(aes(y = value)) +
+  facet_wrap( ~ performance, scales = "free_y") +
+  #scale_color_viridis(discrete = TRUE) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1)) +
+  labs(x = "reference application method")
+
+ggsave("20220824app_pred_sigf_long_bw.jpeg", width = 40, height = 16, units = "cm")
+
+app_n_imputation_combi_result <- application_n_imputation_combi %>%
+  filter(!is.na(HDI)) %>%
+  filter(!is.na(landevap))
+write.csv(app_n_imputation_combi_result, "20220810app_n_imputation_combi_result.csv")
+app_n_imputation_combi_result <- read.csv("20220810app_n_imputation_combi_result.csv")
+app_n_imputation_combi_result <- app_n_imputation_combi_result %>%
+  select(-X)
+for(i in c(1:length(app.list))){
+  app<- app.list[i]
+  app.n.impute <-  read.csv(paste0("20221110app.n.impute_", app, ".csv"))
+  app_n_imputation_combi_result <- app_n_imputation_combi_result %>%
+    left_join(app.n.impute, by = c("score","name_region.y", "name_crop_earthstat", "name_group_yy", "name_activeindication",  "name_chemclass1", "name_moagroup", "HDI", "landevap")) %>%
+    mutate("{app}yes" := V2, "{app}no" := V1, "{app}class" := Class) %>%
+    select(-V1, -V2,  -ChemPresent, -Class, -X)
+  print(i)
+
+  
+}
+
+#plot for results cpp-values
+app_n_imputation_combi_result %>%
+  mutate(ratioyesno = Tunnel.sprayeryes/Tunnel.sprayerno) %>%
+  #mutate(ratioyesn)
+  arrange(ratioyesno) %>%
+  mutate(X = row_number()) %>%
+  ggplot() +
+  geom_point(aes(x= X, y = ratioyesno)) +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) + 
+  #theme_ipsum() +
+  labs(fill="")
+
+write.csv(app_n_imputation_combi_result, "20220810app_n_imputation_combi_result.csv")
+app_n_imputation_combi_result <- read.csv("20220810app_n_imputation_combi_result.csv")
+
+# set significance level to judge if yes or not for each application method
+sigf <- 0.05
+app_n_imputation_combi_result_sigf <- app_n_imputation_combi_result %>%
+  mutate(seedtreatmentsigf = case_when(Seed.treatmentno < sigf & Seed.treatmentyes < sigf ~ "both p < sigf",
+                                       Seed.treatmentno >= sigf & Seed.treatmentyes >= sigf ~ "both p >= sigf",
+                                       Seed.treatmentno >= sigf & Seed.treatmentno > Seed.treatmentyes ~ "1",
+                                       Seed.treatmentyes >= sigf & Seed.treatmentyes > Seed.treatmentno ~ "2")) %>%
+  mutate(boomsprayersigf = case_when(Boom.sprayerno < sigf & Boom.sprayeryes < sigf ~ "both p < sigf",
+                                       Boom.sprayerno >= sigf & Boom.sprayeryes >= sigf ~ "both p >= sigf",
+                                       Boom.sprayerno >= sigf & Boom.sprayerno > Boom.sprayeryes ~ "1",
+                                       Boom.sprayeryes >= sigf & Boom.sprayeryes > Boom.sprayerno ~ "2")) %>%
+  mutate(soilincorporationsigf = case_when(Soil.incorporationno < sigf & Soil.incorporationyes < sigf ~ "both p < sigf",
+                                       Soil.incorporationno >= sigf & Soil.incorporationyes >= sigf ~ "both p >= sigf",
+                                       Soil.incorporationno >= sigf & Soil.incorporationno > Soil.incorporationyes ~ "1",
+                                       Soil.incorporationyes >= sigf & Soil.incorporationyes > Soil.incorporationno ~ "2")) %>%
+  mutate(aerialapplicationsigf = case_when(Aerial.applicationno < sigf & Aerial.applicationyes < sigf ~ "both p < sigf",
+                                       Aerial.applicationno >= sigf & Aerial.applicationyes >= sigf ~ "both p >= sigf",
+                                       Aerial.applicationno >= sigf & Aerial.applicationno > Aerial.applicationyes ~ "1",
+                                       Aerial.applicationyes >= sigf & Aerial.applicationyes > Aerial.applicationno ~ "2")) %>%
+  mutate(handoperatedsigf = case_when(Hand.operated.sprayerno < sigf & Hand.operated.sprayeryes < sigf ~ "both p < sigf",
+                                       Hand.operated.sprayerno >= sigf & Hand.operated.sprayeryes >= sigf ~ "both p >= sigf",
+                                       Hand.operated.sprayerno >= sigf & Hand.operated.sprayerno > Hand.operated.sprayeryes ~ "1",
+                                       Hand.operated.sprayeryes >= sigf & Hand.operated.sprayeryes > Hand.operated.sprayerno ~ "2")) %>%
+  mutate(tunnelsprayersigf = case_when(Tunnel.sprayerno < sigf & Tunnel.sprayeryes < sigf ~ "both p < sigf",
+                                       Tunnel.sprayerno >= sigf & Tunnel.sprayeryes >= sigf ~ "both p >= sigf",
+                                       Tunnel.sprayerno >= sigf & Tunnel.sprayerno > Tunnel.sprayeryes ~ "1",
+                                       Tunnel.sprayeryes >= sigf & Tunnel.sprayeryes > Tunnel.sprayerno ~ "2"))
+app_n_imputation_combi_result_sigf_group <- app_n_imputation_combi_result_sigf %>%
+  group_by(seedtreatmentsigf, boomsprayersigf, soilincorporationsigf, aerialapplicationsigf, handoperatedsigf, tunnelsprayersigf) %>%
+  summarize(count = n())
+
+app_n_imputation_combi_result_sigf_group <- app_n_imputation_combi_result_sigf_group %>%
+  mutate(applicationgroupsigf = case_when(seedtreatmentsigf == "2" & boomsprayersigf!="2" & soilincorporationsigf !="2" & aerialapplicationsigf != "2"& handoperatedsigf != "2" & tunnelsprayersigf !="2" ~  "seed",
+                                          seedtreatmentsigf != "2" & boomsprayersigf=="2" & soilincorporationsigf !="2" & aerialapplicationsigf != "2"& handoperatedsigf != "2" & tunnelsprayersigf !="2" ~  "crop",
+                                          seedtreatmentsigf != "2" & boomsprayersigf!="2" & soilincorporationsigf =="2" & aerialapplicationsigf != "2"& handoperatedsigf != "2" & tunnelsprayersigf !="2" ~  "soil",
+                                          seedtreatmentsigf != "2" & boomsprayersigf!="2" & soilincorporationsigf !="2" & aerialapplicationsigf == "2"& handoperatedsigf != "2" & tunnelsprayersigf !="2" ~  "crop",
+                                          seedtreatmentsigf != "2" & boomsprayersigf!="2" & soilincorporationsigf !="2" & aerialapplicationsigf != "2"& handoperatedsigf == "2" & tunnelsprayersigf !="2" ~  "crop",
+                                          seedtreatmentsigf != "2" & boomsprayersigf!="2" & soilincorporationsigf !="2" & aerialapplicationsigf != "2"& handoperatedsigf != "2" & tunnelsprayersigf =="2" ~  "crop",
+                                          seedtreatmentsigf != "2" & boomsprayersigf=="2" & soilincorporationsigf !="2" & aerialapplicationsigf == "2"& handoperatedsigf != "2" & tunnelsprayersigf !="2" ~  "crop",
+                                          seedtreatmentsigf != "2" & boomsprayersigf=="2" & soilincorporationsigf !="2" & aerialapplicationsigf != "2"& handoperatedsigf == "2" & tunnelsprayersigf !="2" ~  "crop",
+                                          seedtreatmentsigf != "2" & boomsprayersigf=="2" & soilincorporationsigf !="2" & aerialapplicationsigf != "2"& handoperatedsigf != "2" & tunnelsprayersigf =="2" ~  "crop",
+                                          seedtreatmentsigf != "2" & boomsprayersigf=="2" & soilincorporationsigf !="2" & aerialapplicationsigf == "2"& handoperatedsigf == "2" & tunnelsprayersigf !="2" ~  "crop",
+                                          seedtreatmentsigf != "2" & boomsprayersigf=="2" & soilincorporationsigf !="2" & aerialapplicationsigf == "2"& handoperatedsigf != "2" & tunnelsprayersigf =="2" ~  "crop",
+                                          seedtreatmentsigf != "2" & boomsprayersigf=="2" & soilincorporationsigf !="2" & aerialapplicationsigf == "2"& handoperatedsigf == "2" & tunnelsprayersigf =="2" ~  "crop",
+                                          seedtreatmentsigf != "2" & boomsprayersigf!="2" & soilincorporationsigf !="2" & aerialapplicationsigf == "2"& handoperatedsigf == "2" & tunnelsprayersigf !="2" ~  "crop",
+                                          seedtreatmentsigf != "2" & boomsprayersigf!="2" & soilincorporationsigf !="2" & aerialapplicationsigf == "2"& handoperatedsigf != "2" & tunnelsprayersigf =="2" ~  "crop",
+                                          seedtreatmentsigf != "2" & boomsprayersigf!="2" & soilincorporationsigf !="2" & aerialapplicationsigf == "2"& handoperatedsigf == "2" & tunnelsprayersigf =="2" ~  "crop",
+                                          seedtreatmentsigf != "2" & boomsprayersigf!="2" & soilincorporationsigf !="2" & aerialapplicationsigf != "2"& handoperatedsigf == "2" & tunnelsprayersigf =="2" ~  "crop",
+                                          seedtreatmentsigf == "2" & boomsprayersigf=="2" & soilincorporationsigf !="2"  ~  "seedcrop",
+                                          seedtreatmentsigf == "2" & soilincorporationsigf !="2" & aerialapplicationsigf == "2" ~  "seedcrop",
+                                          seedtreatmentsigf == "2" & soilincorporationsigf !="2" & handoperatedsigf == "2" ~  "seedcrop",
+                                          seedtreatmentsigf == "2" & soilincorporationsigf !="2" & tunnelsprayersigf == "2" ~  "seedcrop",
+                                          seedtreatmentsigf != "2" & boomsprayersigf == "2" & soilincorporationsigf == "2" ~ "soilcrop",
+                                          seedtreatmentsigf != "2" & aerialapplicationsigf == "2" & soilincorporationsigf == "2" ~ "soilcrop",
+                                          seedtreatmentsigf != "2" & handoperatedsigf == "2" & soilincorporationsigf == "2" ~ "soilcrop",
+                                          seedtreatmentsigf != "2" & tunnelsprayersigf == "2" & soilincorporationsigf == "2" ~ "soilcrop",
+                                          seedtreatmentsigf == "2" & boomsprayersigf=="2" & soilincorporationsigf =="2"  ~  "seedsoilcrop",
+                                          seedtreatmentsigf == "2" & aerialapplicationsigf=="2" & soilincorporationsigf =="2"  ~  "seedsoilcrop",
+                                          seedtreatmentsigf == "2" & handoperatedsigf=="2" & soilincorporationsigf =="2"  ~  "seedsoilcrop",
+                                          seedtreatmentsigf == "2" & tunnelsprayersigf=="2" & soilincorporationsigf =="2"  ~  "seedsoilcrop",
+                                          seedtreatmentsigf == "2" & boomsprayersigf!="2" & soilincorporationsigf =="2" & aerialapplicationsigf != "2"& handoperatedsigf != "2" & tunnelsprayersigf !="2" ~  "soilseed"))
+
+app_n_imputation_combi_result_sigf_groupna <- app_n_imputation_combi_result_sigf_group %>%
+  filter(is.na(applicationgroupsigf))
+sum(app_n_imputation_combi_result_sigf_groupna$count)/sum(app_n_imputation_combi_result_sigf_group$count)
+
+write.csv(app_n_imputation_combi_result_sigf_group, "20220811app_n_imputation_combi_result_sigf_group.csv")
+
+app_n_imputation_combi_result_seed <- app_n_imputation_combi_result %>%
+  mutate(Class = names(app_n_imputation_combi_result)[c(17,20,23,26, 29,32)][max.col(app_n_imputation_combi_result[c(17,20,23,26, 29,32)])]) %>%
+  filter(`Seed.treatmentclass` == "2") %>%
+  filter(Class == "Seed.treatmentyes" | (`Seed.treatmentclass` == "2" & `Boom.sprayerclass` == "1" & `Soil.incorporationclass` == "1" & `Aerial.applicationclass` == "1" & `Hand.operated.sprayerclass` == "1" & `Tunnel.sprayerclass` == "1")) #%>%
+  #filter(`Seed.treatmentclass` == "2") %>%
+  #filter(`Boom.sprayerclass` == "1") %>%
+  #filter(`Soil.incorporationclass` == "1") %>%
+  #filter(`Aerial.applicationclass` == "1") %>%
+  #filter(`Hand.operated.sprayerclass` == "1") %>%
+  #filter(`Tunnel.sprayerclass` == "1") 
+
+app_n_imputation_combi_result_null <- app_n_imputation_combi_result %>%
+  filter(`Seed.treatmentclass` == "1") %>%
+  filter(`Boom.sprayerclass` == "1") %>%
+  filter(`Soil.incorporationclass` == "1") %>%
+  filter(`Aerial.applicationclass` == "1") %>%
+  filter(`Hand.operated.sprayerclass` == "1") %>%
+  filter(`Tunnel.sprayerclass` == "1") 
+
+app_n_imputation_combi_result_soil <- app_n_imputation_combi_result %>%
+  mutate(Class = names(app_n_imputation_combi_result)[c(17,20,23,26, 29,32)][max.col(app_n_imputation_combi_result[c(17,20,23,26, 29,32)])]) %>%
+  filter(`Soil.incorporationclass` == "2") %>%
+  filter(Class == "Soil.incorporationyes" | (`Seed.treatmentclass` == "1" & `Boom.sprayerclass` == "1" & `Soil.incorporationclass` == "2" & `Aerial.applicationclass` == "1" & `Hand.operated.sprayerclass` == "1" & `Tunnel.sprayerclass` == "1")) #%>%
+  #filter(`Seed.treatmentclass` == "1") %>%
+  #filter(`Boom.sprayerclass` == "1") %>%
+  #filter(`Soil.incorporationclass` == "2") %>%
+  #filter(`Aerial.applicationclass` == "1") %>%
+  #filter(`Hand.operated.sprayerclass` == "1") %>%
+  #filter(`Tunnel.sprayerclass` == "1") 
+
+app_n_imputation_combi_result_seed <- app_n_imputation_combi_result_seed %>%
+  mutate(seedyes = "yes")
+app_n_imputation_combi_result_soil <- app_n_imputation_combi_result_soil %>%
+  mutate(soilyes = "yes")
+app_n_imputation_combi_result_check_soilseed <- app_n_imputation_combi_result %>%
+  left_join(app_n_imputation_combi_result_seed, by = c("name_crop_earthstat", "name_country", "name_ai", "name_indication")) %>%
+  left_join(app_n_imputation_combi_result_soil, by = c("name_crop_earthstat", "name_country", "name_ai", "name_indication")) %>%
+  mutate(applicationgroup = case_when(!is.na(seedyes) ~ "seed",
+                                      !is.na(soilyes) ~ "soil",
+                                      TRUE ~ "crop")) %>%
+  select(name_crop_earthstat, name_country, name_ai, name_indication, name_chemclass1.x, name_moagroup.x, applicationgroup)
+
+#app_n_imputation_combi_result_check_soilseed <- app_n_imputation_combi_result_check_soilseed %>%
+  #group_by(name_crop_earthstat, name_country, name_ai, name_indication, applicationgroup) %>%
+  #summarize(n = n()) %>%
+  #filter(n > 1)
+
+input_appbbch_application <- input_appbbch %>%
+  filter(application_YN == "NO") %>%
+  filter(!is.na(`Short Name`)) %>%
+  left_join(app_n_imputation_combi_result_check_soilseed, by = c("name_crop_earthstat", "name_country", "name_ai", "name_indication"))
+
+input_appbbch_application %>%
+  ggplot(aes(x = applicationgroup, y = dose, color = applicationgroup)) +
+  geom_point()
+
+input_appbbch_crop <- input_appbbch%>%
+  filter(!is.na(`Short Name`))
+table(input_appbbch_crop$application_YN)
+
+input_appbbch_application_no <- input_appbbch_application %>%
+  filter(is.na(applicationgroup)) %>%
+  filter(name_country_bayer != "CENTRAL AMERICA-CARIBBEAN")
+  group_by(name_country, name_crop_earthstat) %>%
+  summarize(count = n())
+  
+input_appbbch_application_nocountry <- input_appbbch_application_no %>%
+  group_by(name_country, name_crop_earthstat) %>%
+  summarize(summass = sum(applied_mass_kkg)) %>%
+  ungroup() %>%
+  mutate(ratio = round(summass/sum(summass),4))
+
+
+input_appbbch_application_yes <- input_appbbch %>%
+  filter(application_YN == "YES") %>%
+  filter(!is.na(`Short Name`)) %>%
+  mutate(applicationgroup = case_when(name_refapp == "seed treatment" ~ "seed",
+                                      name_refapp == "soil incorporation" ~ "soil",
+                                      TRUE ~ "crop")) %>%
+  mutate(prediction = "ori")
+
+input_appbbch_application <- input_appbbch_application %>%
+  #select(-name_chemclass1.x, -name_moagroup.x) %>%
+  mutate(prediction = "pred")
+
+input_appbbch_applicationfull <- rbind(input_appbbch_application_yes, input_appbbch_application)
+
+input_appbbch_applicationbbch <- input_appbbch_bbchfull %>%
+  left_join(input_appbbch_applicationfull, by = c("Year", "name_region.x", "name_country_bayer", "name_indication", "name_activetype", "name_ai_bayer", "name_activegroup", "name_cropmaingroup", "name_cropgroup_bayer", "name_crop_bayer", "name_moa", "name_app", "name_cropstage", "name_stagegroup", "name_activeindication", "casrn_chemical_bayer", "name_source", "treated_area_kha", "applied_mass_kkg", "dose_kgperha",  "code_country",  "name_country"     , "name_region.y" ,"name_crop", "...3", "spring_winter","remarks",  "name_crop_earthstat" ,"name_crop_FAO","name_cropgroup", "gene" ,"name_ai" ,"casrn_chemical","name_chemclass", "name_chemclass1", "name_moagroup", "code_bbch" , "min" , "max", "name_refapp", "dose" ,"dosediff", "dosediffis", "bbch_YN", "application_YN", "Short Name" ,"name_group_yy"))
+
+applicationbbchpredori <- input_appbbch_applicationbbch_check %>%
+  group_by(bbchgroup, predictionbbch, applicationgroup, prediction, predori) %>%
+  summarize(count = n())
+
+write.csv(input_appbbch_applicationbbch, "20220810input_appbbch_applicationbbch.csv")
+input_appbbch_applicationbbch <- read.csv("20220810input_appbbch_applicationbbch.csv")
+input_appbbch_applicationbbch_check <- input_appbbch_applicationbbch %>%
+  mutate(treatment = case_when(applicationgroup == "crop" ~ "crop",
+                               bbchgroup == "crop" ~ "crop",
+                               bbchgroup == "other" ~ "crop",
+                               TRUE ~ "null")) %>%
+  mutate(treatment = case_when(applicationgroup == "seed"  ~ "seed",
+                               bbchgroup == "seed" ~ "seed",
+                               applicationgroup == "soil" ~ "soil",
+                               bbchgroup == "soil" ~ "soil",
+                               name_stagegroup == "00 SEED-DRESSING" ~ "seed",
+                               name_stagegroup == "0 SOIL" ~ "soil",
+                               name_refapp == "seed treatment" ~ "seed",
+                               name_indication == "SEED DRESSING" ~ "seed",
+                               name_refapp == "soil incorporation" ~ "soil",
+                               name_cropstage == "0000-SEED-DRESSING" ~ "seed",
+                               TRUE ~ treatment)) %>%
+  mutate(predori = case_when(bbchgroup == "soil" & predictionbbch == "ori" ~ "ori",
+                             applicationgroup == "soil" & prediction == "ori" ~ "ori",
+                             bbchgroup == "seed" & predictionbbch == "ori" ~ "ori",
+                             applicationgroup == "seed" & prediction == "ori" ~ "ori",
+                             bbchgroup == "seed" & predictionbbch == "pred" ~ "pred",
+                             applicationgroup == "seed" & prediction == "pred" ~ "pred",
+                             bbchgroup == "soil" & predictionbbch == "pred" ~ "pred",
+                             bbchgroup == "crop" & predictionbbch == "ori" ~ "ori",
+                             applicationgroup == "crop" & prediction == "ori" ~ "ori",
+                             TRUE ~ "pred"))
+
+table(input_appbbch_applicationbbch_check$treatment)
+
+input_appbbch_applicationbbch_check_null <- input_appbbch_applicationbbch_check %>%
+  filter(treatment == "null")
+
+input_appbbch_applicationbbch_check %>%
+  ggplot(aes(x = dose, fill = treatment)) +
+  geom_histogram(color="#e9ecef", alpha=0.6, position = 'identity') +
+  scale_fill_viridis(discrete = TRUE) +
+  scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x)))
+  #theme_ipsum() +
+  labs(fill="")
+
+table(input_appbbch_applicationbbch$bbchgroup)
+
+app_n_imputation_combi_result %>%
+  ggplot() +
+  geom_point(aes(x = `Aerial applicationyes`, y = `Aerial applicationno`, alpha = 0.5)) +
+  geom_point(aes(x = `Boom sprayeryes`, y = `Boom sprayerno`, color = "red", alpha = 0.5))
+```
+
+#country level treatment type conformal prediction
+```{r}
+
+## load the library
+library(mlbench)
+#library(caret)
+library(conformalClassification)
+
+treatment.n.df <- treatment_n_imputation_combi %>%
+    filter(!is.na(HDI)) %>%
+    filter(!is.na(landevap)) %>%
+    #mutate(Short.Name = `Short Name`) %>%
+    group_by(score, name_region.y, name_crop_earthstat, name_group_yy,  name_chemclass1,name_moagroup, name_activeindication, HDI, landevap) %>%
+    summarize(count = n()) %>%
+    ungroup() %>%
+    select(-count) #%>%
+
+treatment.list <- unique(treatment_imputation_combi$treatment)
+
+dat.out_0.05 <- matrix(data = "X", nrow = length(treatment.list), ncol = 8, dimnames = list(NULL, c("BBCH", "No_ActualNo", "Yes_ActualNo", "No_ActualYes",
+                                                                                               "Yes_ActualYes", "out of prediction","No_Accuracy", "Yes_Accuracy")))
+dat.out_0.1 <- matrix(data = "X", nrow = length(treatment.list), ncol = 8, dimnames = list(NULL, c("BBCH", "No_ActualNo", "Yes_ActualNo", "No_ActualYes",
+                                                                                               "Yes_ActualYes", "out of prediction","No_Accuracy", "Yes_Accuracy")))
+
+dat.out_0.01 <- matrix(data = "X", nrow = length(treatment.list), ncol = 8, dimnames = list(NULL, c("BBCH", "No_ActualNo", "Yes_ActualNo", "No_ActualYes",
+                                                                                               "Yes_ActualYes", "out of prediction","No_Accuracy", "Yes_Accuracy")))
+dat.out_0.2 <- matrix(data = "X", nrow = length(treatment.list), ncol = 8, dimnames = list(NULL, c("BBCH", "No_ActualNo", "Yes_ActualNo", "No_ActualYes",
+                                                                                               "Yes_ActualYes", "out of prediction","No_Accuracy", "Yes_Accuracy")))
+dat.out_0.15 <- matrix(data = "X", nrow = length(treatment.list), ncol = 8, dimnames = list(NULL, c("BBCH", "No_ActualNo", "Yes_ActualNo", "No_ActualYes",
+                                                                                               "Yes_ActualYes", "out of prediction","No_Accuracy", "Yes_Accuracy")))
+
+#summary(app9099)
+i <-2
+for(i in c(1:length(treatment.list))){
+  treatment<- treatment.list[i]
+  treatment <- "crop"
+  treatment.df <-  read.csv(paste0("C:/me/data gaps/20221025treatment_country", treatment, ".csv"))
+  treatment.n <- treatment.n.df
+  treatment.n$ChemPresent <- "null"
+  treatment.n <- treatment.n %>%
+    dplyr::select(ChemPresent, score, name_region.y, name_crop_earthstat, name_group_yy, name_chemclass1, name_moagroup, name_activeindication, HDI, landevap)
+  treatment.df <- treatment.df %>%
+  dplyr::select(ChemPresent, score, name_region.y, name_crop_earthstat, name_group_yy,  name_chemclass1, name_moagroup, name_activeindication, HDI, landevap) %>%
+  filter(!is.na(HDI))%>%
+  filter(!is.na(landevap))
+
+  originalData <- treatment.df
+
+  ## make sure first column is always the label and class labels are always 1, 2, ...
+  originalData[, 1] = as.factor(originalData[, 1])
+  originalData[, 1] = as.numeric(unlist(originalData[, 1]))
+  ## partition the data into training and test set
+  #result = createDataPartition(originalData[, 1], p = 0.7, list = FALSE)
+  #size = nrow(originalData)
+  #result = sample(1:size, 0.8*size)
+  
+  # trainingSet = originalData[result, ]
+  # testSet = originalData[-result, ]
+   # testSet.df <- testSet %>%
+   #  mutate(ChemPresent = "null") %>%
+   #   dplyr::select(ChemPresent, score, name_region.y, name_crop_earthstat, name_group_yy,  name_chemclass1, name_moagroup, name_activeindication, HDI, landevap)
+  ##ICP classification
+  #pValues_train = ICPClassification(trainingSet, testSet.df)
+  #pValues = ICPClassification(originalData, treatment.n
+  #CPCalibrationPlot(pValues_train, testSet, "blue")
+
+  #bootstrap_preds_yes <- matrix(data = "X", nrow = nrow(treatment.n), ncol = 10)
+  #bootstrap_preds_no <- matrix(data = "X", nrow = nrow(treatment.n), ncol = 10)
+  
+  for(b in c(1:10)){
+    #train_idxs = sample(seq(n),size = n, replace = TRUE)
+    originalData_r <- originalData
+    #originalData_r <- originalData_r %>%
+      #select(-orig.id)
+    pValues = ICPClassification(originalData_r, treatment.n, ratioTrain = 0.7, method = "rf", nrTrees = 100)
+    for(j in c(1:nrow(treatment.n))){
+      bootstrap_preds_no[j,b] = pValues[j,1]
+      bootstrap_preds_yes[j,b] = pValues[j,2]
+      #print(i)
+    }
+    print(b)
+  }
+  
+  # bootstrap_preds_no.df <- as.data.frame(bootstrap_preds_no)
+  # bootstrap_preds_no.df10 <- bootstrap_preds_no.df[1:20,]
+  # bootstrap_preds_no.df <- bootstrap_preds_no.df %>%
+  #   mutate_if(is.character, as.numeric) #%>%
+  #   rowwise() %>%
+  #   mutate(median = median(c_across(where(is.numeric)), na.rm = TRUE))
+  # percentile_boot_no <- bootstrap_preds_no.df %>%
+  #   bind_cols(as.data.frame(t(apply(., 1, quantile, c(0.05, 0.95)))))
+  # percentile_boot_no <- percentile_boot_no %>%
+  #   mutate(no0.05 = `5%`, no0.95 = `95%`) %>%
+  #   dplyr::select(no0.05, no0.95)
+  # bootstrap_preds_no_median <- bootstrap_preds_no.df %>%
+  #   rowwise() %>%
+  #   mutate(median = median(c_across(where(is.numeric)), na.rm = TRUE))
+  # percentile_median_no <- cbind(percentile_boot_no, bootstrap_preds_no_median$median)
+  
+  
+  
+  bootstrap_preds_yes.df <- as.data.frame(bootstrap_preds_yes)
+  bootstrap_preds_yes.df <- bootstrap_preds_yes.df %>%
+    mutate_if(is.character, as.numeric)
+  percentile_boot_yes10 <- bootstrap_preds_yes.df %>%
+    bind_cols(as.data.frame(t(apply(., 1, quantile, c(0.025, 0.975)))))
+  percentile_boot_yes <- percentile_boot_yes10 %>%
+    mutate(yes0.025 = `2.5%`, yes0.975 = `97.5%`) %>%
+    select(yes0.025, yes0.975)
+  bootstrap_preds_yes_median <- bootstrap_preds_yes.df %>%
+    rowwise() %>%
+    mutate(medianyes = median(c_across(where(is.numeric)), na.rm = TRUE))
+  #percentile_median_yes <- cbind(testSet.df, percentile_boot_yes, bootstrap_preds_yes_median) #%>%
+    #filter(median > 0.05)
+  #write.csv(percentile_median_yes, "20221020percentile_median_yes.csv")
+  
+  bootstrap_preds_no.df <- as.data.frame(bootstrap_preds_no)
+  bootstrap_preds_no.df <- bootstrap_preds_no.df %>%
+    mutate_if(is.character, as.numeric)
+  percentile_boot_no10 <- bootstrap_preds_no.df %>%
+    bind_cols(as.data.frame(t(apply(., 1, quantile, c(0.025, 0.975)))))
+  percentile_boot_no <- percentile_boot_no10 %>%
+    mutate(no0.025 = `2.5%`, no0.975 = `97.5%`) %>%
+    select(no0.025, no0.975)
+  bootstrap_preds_no_median <- bootstrap_preds_no.df %>%
+    rowwise() %>%
+    mutate(medianno = median(c_across(where(is.numeric)), na.rm = TRUE))
+  percentile_median <- cbind(treatment.n, percentile_boot_no, percentile_boot_yes, bootstrap_preds_no_median, bootstrap_preds_yes_median) #%>%
+    #filter(median > 0.05)
+  write.csv(percentile_median, paste0("20221031treatment_percentile_median_no.",treatment, ".csv"))
+  
+  #generating prediction yes no results
+  #CPCalibrationPlot(pValues_train, testSet, "blue")
+  
+  #testLabels = testSet.df[,1]
+  # CPEfficiency_0.05 <- CPEfficiency(pValues_train, testLabels,sigfLevel = 0.05)
+  # CPErrorRate_0.05 <- CPErrorRate(pValues_train, testLabels, sigfLevel = 0.05)
+  # CPEfficiency_0.01 <- CPEfficiency(pValues_train, testLabels,sigfLevel = 0.01)
+  # CPErrorRate_0.01 <- CPErrorRate(pValues_train, testLabels,sigfLevel = 0.01)
+  # CPEfficiency_0.1 <- CPEfficiency(pValues_train, testLabels,sigfLevel = 0.1)
+  # CPErrorRate_0.1 <- CPErrorRate(pValues_train, testLabels,sigfLevel = 0.1)
+  # CPEfficiency_0.2 <- CPEfficiency(pValues_train, testLabels,sigfLevel = 0.2)
+  # CPErrorRate_0.2 <- CPErrorRate(pValues_train, testLabels,sigfLevel = 0.2)
+  # CPEfficiency_0.15 <- CPEfficiency(pValues_train, testLabels,sigfLevel = 0.15)
+  # CPErrorRate_0.15 <- CPErrorRate(pValues_train, testLabels,sigfLevel = 0.15)
+  #CPValidity(pValues_train, testLabels)
+  
+  #pValues.df <- as.data.frame(pValues)
+  #pValues.df <- pValues.df %>%
+    #mutate(Class = names(.)[max.col(.)])
+  #pValues.df$Class <-gsub("V","",as.character(pValues.df$Class))
+  
+  pValues.df <- percentile_median %>%
+    select(medianyes, medianno) %>%
+    mutate(V1 = medianno, V2 = medianyes) %>%
+    select(-medianyes, -medianno)
+  
+  pValues.df <- pValues.df %>%
+    mutate(Class = names(.)[max.col(.)])
+  pValues.df$Class <-gsub("V","",as.character(pValues.df$Class))
+  sig <- 0.05
+  pValues.df.pred_0.05 <- pValues.df %>%
+    mutate(chemPred = case_when(#V1 >= sig & V2 >= sig ~ "both p >= sig",
+                                V1 < sig & V2 < sig ~ "both p < sig",
+                                V1 >= sig & V2 < V1 ~ "V1",
+                                V2 >= sig & V2 > V1 ~ "V2"))
+                                #V2 < V1 ~ "V1",
+                                #V2 > V1 ~ "V2"))
+  # sig <- 0.01
+  # pValues.df.pred_0.01 <- pValues.df %>%
+  #   mutate(chemPred = case_when(#V1 >= sig & V2 >= sig ~ "both p >= sig",
+  #                               V1 < sig & V2 < sig ~ "both p < sig",
+  #                               V1 >= sig & V2 < V1 ~ "V1",
+  #                               V2 >= sig & V2 > V1 ~ "V2"))
+  #                               #V2 < V1 ~ "V1",
+  #                               #V2 > V1 ~ "V2"))
+  # sig <- 0.1
+  # pValues.df.pred_0.1 <- pValues.df %>%
+  #   mutate(chemPred = case_when(#V1 >= sig & V2 >= sig ~ "both p >= sig",
+  #                               V1 < sig & V2 < sig ~ "both p < sig",
+  #                               V1 >= sig & V2 < V1 ~ "V1",
+  #                               V2 >= sig & V2 > V1 ~ "V2"))
+  #                               #V2 < V1 ~ "V1",
+  #                               #V2 > V1 ~ "V2"))
+  # sig <- 0.2
+  # pValues.df.pred_0.2 <- pValues.df %>%
+  #   mutate(chemPred = case_when(#V1 >= sig & V2 >= sig ~ "both p >= sig",
+  #                               V1 < sig & V2 < sig ~ "both p < sig",
+  #                               V1 >= sig & V2 < V1 ~ "V1",
+  #                               V2 >= sig & V2 > V1 ~ "V2"))
+  #                               #V2 < V1 ~ "V1",
+  #                               #V2 > V1 ~ "V2"))
+  # sig <- 0.15
+  # pValues.df.pred_0.15 <- pValues.df %>%
+  #   mutate(chemPred = case_when(#V1 >= sig & V2 >= sig ~ "both p >= sig",
+  #                               V1 < sig & V2 < sig ~ "both p < sig",
+  #                               V1 >= sig & V2 < V1 ~ "V1",
+  #                               V2 >= sig & V2 > V1 ~ "V2"))
+  #                               #V2 < V1 ~ "V1",
+  #                               #V2 > V1 ~ "V2"))
+  treatment.n.impute <- cbind(treatment.n, pValues.df.pred_0.05)
+  write.csv(treatment.n.impute, paste0("20221031treatment.n.impute", treatment, ".csv"))
+  #bbch.n.impute <- cbind(bbch.n, pValues.df)
+  #write.csv(bbch.n.impute, paste0("20220810bbch.n.impute_", bbch, ".csv"))
+  # cm_0.05 <- as.data.table(table(testSet$ChemPresent, pValues.df.pred_0.05$chemPred))
+  # val.out_0.05 <- c(treatment,
+  #              cm_0.05[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.05[V1 == "1" & V2 == "V2"]$N,
+  #              cm_0.05[V1 == "2" & V2 == "V1"]$N,
+  #              cm_0.05[V1 == "2" & V2 == "V2"]$N,
+  #              nrow(testSet) - cm_0.05[V1 == "2" & V2 == "V2"]$N - cm_0.05[V1 == "2" & V2 == "V1"]$N - cm_0.05[V1 == "1" & V2 == "V2"]$N - cm_0.05[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.05[V1 == "1" & V2 == "V1"]$N/length(which(testSet$ChemPresent == "1")),
+  #              cm_0.05[V1 == "2" & V2 == "V2"]$N/length(which(testSet$ChemPresent == "2")))
+  # 
+  # cm_0.01 <- as.data.table(table(testSet$ChemPresent, pValues.df.pred_0.01$chemPred))
+  # val.out_0.01 <- c(treatment,
+  #              cm_0.01[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.01[V1 == "1" & V2 == "V2"]$N,
+  #              cm_0.01[V1 == "2" & V2 == "V1"]$N,
+  #              cm_0.01[V1 == "2" & V2 == "V2"]$N,
+  #              nrow(testSet) - cm_0.01[V1 == "2" & V2 == "V2"]$N - cm_0.01[V1 == "2" & V2 == "V1"]$N - cm_0.01[V1 == "1" & V2 == "V2"]$N - cm_0.01[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.01[V1 == "1" & V2 == "V1"]$N/length(which(testSet$ChemPresent == "1")),
+  #              cm_0.01[V1 == "2" & V2 == "V2"]$N/length(which(testSet$ChemPresent == "2")))
+  # 
+  # cm_0.1 <- as.data.table(table(testSet$ChemPresent, pValues.df.pred_0.1$chemPred))
+  # val.out_0.1 <- c(treatment,
+  #              cm_0.1[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.1[V1 == "1" & V2 == "V2"]$N,
+  #              cm_0.1[V1 == "2" & V2 == "V1"]$N,
+  #              cm_0.1[V1 == "2" & V2 == "V2"]$N,
+  #              nrow(testSet) - cm_0.1[V1 == "2" & V2 == "V2"]$N - cm_0.1[V1 == "2" & V2 == "V1"]$N - cm_0.1[V1 == "1" & V2 == "V2"]$N - cm_0.1[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.1[V1 == "1" & V2 == "V1"]$N/length(which(testSet$ChemPresent == "1")),
+  #              cm_0.1[V1 == "2" & V2 == "V2"]$N/length(which(testSet$ChemPresent == "2")))
+  # 
+  # cm_0.2 <- as.data.table(table(testSet$ChemPresent, pValues.df.pred_0.2$chemPred))
+  # val.out_0.2 <- c(treatment,
+  #              cm_0.2[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.2[V1 == "1" & V2 == "V2"]$N,
+  #              cm_0.2[V1 == "2" & V2 == "V1"]$N,
+  #              cm_0.2[V1 == "2" & V2 == "V2"]$N,
+  #              nrow(testSet) - cm_0.2[V1 == "2" & V2 == "V2"]$N - cm_0.2[V1 == "2" & V2 == "V1"]$N - cm_0.2[V1 == "1" & V2 == "V2"]$N - cm_0.2[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.2[V1 == "1" & V2 == "V1"]$N/length(which(testSet$ChemPresent == "1")),
+  #              cm_0.2[V1 == "2" & V2 == "V2"]$N/length(which(testSet$ChemPresent == "2")))
+  # 
+  # cm_0.15 <- as.data.table(table(testSet$ChemPresent, pValues.df.pred_0.15$chemPred))
+  # val.out_0.15 <- c(treatment,
+  #              cm_0.15[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.15[V1 == "1" & V2 == "V2"]$N,
+  #              cm_0.15[V1 == "2" & V2 == "V1"]$N,
+  #              cm_0.15[V1 == "2" & V2 == "V2"]$N,
+  #              nrow(testSet) - cm_0.15[V1 == "2" & V2 == "V2"]$N - cm_0.15[V1 == "2" & V2 == "V1"]$N - cm_0.15[V1 == "1" & V2 == "V2"]$N - cm_0.15[V1 == "1" & V2 == "V1"]$N,
+  #              cm_0.15[V1 == "1" & V2 == "V1"]$N/length(which(testSet$ChemPresent == "1")),
+  #              cm_0.15[V1 == "2" & V2 == "V2"]$N/length(which(testSet$ChemPresent == "2")))
+  # #result <- cbind(testSet, pValues.df)
+  # #result <- result %>%
+  # #mutate(class1019no = V1, class1019yes = V2, class1019 = Class)
+  # #write.csv(result_1019,"20220608result_1019.csv")
+  # #result_a <- result %>%
+  #   #filter(Class == bbch_cluster)
+  # dat.out_0.05[i,] <- val.out_0.05
+  # dat.out_0.1[i,] <- val.out_0.1
+  # dat.out_0.01[i,] <- val.out_0.01
+  # dat.out_0.2[i,] <- val.out_0.2
+  # dat.out_0.15[i,] <- val.out_0.15
+  print(i)
+  
+  #app.n.impute <- cbind(app.n, pValues.df)
+  #write.csv(app.n.impute, paste0("20220810app.n.impute_", app, ".csv"))
+  #cm <- as.data.table(table(testSet$ChemPresent, pValues.df$Class))
+  #result <- cbind(testSet, pValues.df)
+  #result <- result %>%
+  #mutate(class1019no = V1, class1019yes = V2, class1019 = Class)
+  #write.csv(result_1019,"20220608result_1019.csv")
+  #result_a <- result %>%
+    #filter(Class == app_cluster)
+  #print(i)
+}
+dat.out_0.05 <- as.data.frame(dat.out_0.05)
+dat.out_0.05$sigf <- 0.05
+
+dat.out_0.01 <- as.data.frame(dat.out_0.01)
+dat.out_0.01$sigf <- 0.01
+
+dat.out_0.1 <- as.data.frame(dat.out_0.1)
+dat.out_0.1$sigf <- 0.1
+
+dat.out_0.2 <- as.data.frame(dat.out_0.2)
+dat.out_0.2$sigf <- 0.2
+
+dat.out_0.15 <- as.data.frame(dat.out_0.15)
+dat.out_0.15$sigf <- 0.15
+
+app_pred_sigf <- rbind(dat.out_0.01, dat.out_0.05, dat.out_0.1, dat.out_0.15,dat.out_0.2)
+
+app_pred_sigf$No_Accuracy <- as.numeric(app_pred_sigf$No_Accuracy)
+app_pred_sigf$Yes_Accuracy <- as.numeric(app_pred_sigf$Yes_Accuracy)
+app_pred_sigf$CPEfficiency <- as.numeric(app_pred_sigf$CPEfficiency)
+app_pred_sigf$CPErrorRate <- as.numeric(app_pred_sigf$CPErrorRate)
+app_pred_sigf$`out of prediction` <- as.numeric(app_pred_sigf$`out of prediction`)
+app_pred_sigf$sigf <- as.factor(app_pred_sigf$sigf)
+
+app_pred_sigf %>%
+  ggplot(aes(x = app, color = sigf, group = sigf)) +
+  geom_point(aes(y = No_Accuracy)) +
+  geom_line(aes(y = No_Accuracy))
+
+app_pred_sigf_long <- melt(app_pred_sigf, id.vars = c("BBCH", "sigf"),measure.vars = c("No_Accuracy", "Yes_Accuracy", "out of prediction"), variable.name = "performance")
+app_pred_sigf_long$value <- as.numeric(app_pred_sigf_long$value)
+
+app_pred_sigf_long %>%
+  ggplot(aes(x = BBCH, color = sigf, group = sigf)) +
+  #ggplot(aes(x = BBCH)) +
+  geom_point(aes(y = value)) +
+  #geom_line(aes(y = value)) +
+  facet_wrap( ~ performance, scales = "free_y") +
+  #scale_color_viridis(discrete = TRUE) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1)) +
+  labs(x = "treatment type")
+
+
+treatment_crop <- read.csv("20221031treatment.n.imputecrop.csv")
+treatment_soil <- read.csv("20221031treatment.n.imputesoil.csv")
+treatment_seed <- read.csv("20221031treatment.n.imputeseed.csv")
+
+treatment_crop <- treatment_crop %>%
+  mutate(V1_crop = V1, V2_crop = V2, Class_crop = Class, chemPred_crop = chemPred) %>%
+  select(score, name_region.y, name_crop_earthstat, name_group_yy, name_chemclass1, name_moagroup, name_activeindication, HDI, landevap, V1_crop, V2_crop, Class_crop, chemPred_crop)
+
+treatment_soil <- treatment_soil %>%
+  mutate(V1_soil = V1, V2_soil = V2, Class_soil = Class, chemPred_soil = chemPred) %>%
+  select(score, name_region.y, name_crop_earthstat, name_group_yy, name_chemclass1, name_moagroup, name_activeindication, HDI, landevap, V1_soil, V2_soil, Class_soil, chemPred_soil)
+
+treatment_seed <- treatment_seed %>%
+  mutate(V1_seed = V1, V2_seed = V2, Class_seed = Class, chemPred_seed = chemPred) %>%
+  select(score, name_region.y, name_crop_earthstat, name_group_yy, name_chemclass1, name_moagroup, name_activeindication, HDI, landevap, V1_seed, V2_seed, Class_seed, chemPred_seed)
+
+treatment_cpp <- treatment_crop %>%
+  left_join(treatment_soil, by = c("score", "name_region.y", "name_crop_earthstat", "name_group_yy", "name_chemclass1", "name_moagroup", "name_activeindication", "HDI", "landevap")) %>%
+  left_join(treatment_seed, by = c("score", "name_region.y", "name_crop_earthstat", "name_group_yy", "name_chemclass1", "name_moagroup", "name_activeindication", "HDI", "landevap")) %>%
+  left_join(join_short_country_uni, by = c("name_crop_earthstat" = "variable", "HDI", "landevap", "score"))
+
+treatment_cpp_na <- treatment_cpp %>%
+  filter(is.na(name_country)) %>%
+  left_join(treatment_imputation_combi_check, by = c("HDI" = "HDI_avg", "landevap" = "landevap_avg")) %>%
+  mutate(name_country = name_country.y) %>%
+  mutate(name_country = case_when(is.na(name_country) ~ "Turkmenistan",
+                                  TRUE ~ name_country)) %>%
+  select(name_country, name_region.y, name_crop_earthstat, name_group_yy, name_chemclass1, name_moagroup, name_activeindication, V1_crop, V2_crop, Class_crop, chemPred_crop, V1_soil, V2_soil, Class_soil, chemPred_soil, V1_seed, V2_seed, Class_seed, chemPred_seed)
+  
+treatment_cpp_notna <- treatment_cpp %>%
+  filter(!is.na(name_country)) %>%
+  select(name_country, name_region.y, name_crop_earthstat, name_group_yy, name_chemclass1, name_moagroup, name_activeindication, V1_crop, V2_crop, Class_crop, chemPred_crop, V1_soil, V2_soil, Class_soil, chemPred_soil, V1_seed, V2_seed, Class_seed, chemPred_seed)
+
+treatment_cpp_full <- rbind(treatment_cpp_notna, treatment_cpp_na)
+input_treatment <- input_appbbch %>%
+  filter(treatment_YN == "NO") %>%
+  left_join(treatment_cpp_full, by = c("name_country", "name_region.y", "name_crop_earthstat", "name_group_yy", "name_chemclass1", "name_moagroup", "name_activeindication")) %>%
+  mutate(treatment_pred = case_when(Class_soil == "2" ~ "soil",
+                                    TRUE ~ "crop"))
+
+p <- input_treatment %>%
+  #mutate(predori_treatment = paste0(treatment_adj, predori)) %>%
+  mutate(name_activeindication = str_remove(name_activeindication, "-ACTIV$")) %>%
+  #filter(treatment_adj != "null") %>%
+  filter(dose >10) %>%
+  #ggplot(., aes(x = dose_kgperha, fill = name_cropgroup)) +
+  ggplot(., aes(x = dose)) +
+  #ggplot(., aes(x = dose_kgperha, fill = name_refapp)) +
+  #ggplot(., aes(x = dose_kgperha, fill = bbch_group)) +
+  #ggplot(., aes(x = dose_kgperha, fill = name_region)) +
+  #ggplot(., aes(x = dose_kgperha, fill = name_stagegroup)) +
+  #ggplot(., aes(x = dose_kgperha)) +
+  geom_histogram(aes(fill = treatment_pred), color="black", alpha=0.6) +
+  #geom_histogram_pattern(aes(pattern = predori_treatment, pattern_color = predori_treatment), fill = "transparent", pattern_spacing = 0.01, pattern_density = 0.1, pattern_fill = 'NA', color = "black")+
+  #scale_pattern_manual(values = c('stripe', 'stripe', 'stripe', 'stripe', 'stripe', 'stripe')) +
+  #scale_pattern_color_manual(values = c( "grey20",'#FEF17C',  "grey20",'#8F6798',  'grey20','#7ABDBA')) +
+  scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          labels = trans_format("log10", math_format(10^.x)))+
+  #scale_fill_manual(values = c('#fde725','#440154','#21918c')) +
+  theme_bw() #+
+  theme(axis.text = element_text(size = 30), axis.title = element_text(size = 30), legend.text = element_text(size = 28), legend.title = element_text(size = 30), legend.position = 'NA')
+
+p
+
+input_treatmentna <- input_treatment %>%
+  filter(is.na(V1_crop))
+unique(input_treatmentna$name_crop_earthstat)
+```
+
+
+
+#2018 boxplot individual chemical
+```{r}
+input_2018box <- input2018_app %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+ # mutate(summass = sum(applied_mass_kkg)) %>%
+  #mutate(massperc = applied_mass_kkg/summass, variabilityweight = massperc * score) %>%
+  #mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, name_region, name_cropgroup, name_ai) %>%
+  summarize(wd = sum(applied_mass_kkg)/sum(treated_area_kha))
+
+input_2018box %>%
+        filter(name_ai == "Trifloxystrobin") %>%
+  filter(wd > 0.001) %>%
+        ggplot(aes(x = name_cropgroup, y = `wd`)) +
+        geom_boxplot(size = 1,
+                         outlier.shape = NA,
+                         outlier.color = "black",
+                         outlier.size = 3) +
+        geom_jitter(alpha = 0.8, width = 0.2, aes(color = name_region)) +
+        theme_minimal() +
+        scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          labels = trans_format("log10", math_format(10^.x))) +
+            #facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+            #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+        scale_color_brewer(palette="Set2") +
+  annotation_logticks(sides = "b") +
+  theme(legend.position = c(0.2, 0.5)) +
+  xlab("Crop Group") + ylab("Weighted Average Dose [kg/ha]") +
+  theme(axis.text = element_text(size = 12), axis.title = element_text(size = 12)) +
+  coord_flip()
+            #coord_flip()
+        p
+```
+
+# all chemicals per crop
+```{r}
+input_2018box <- input2018_app %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+ # mutate(summass = sum(applied_mass_kkg)) %>%
+  #mutate(massperc = applied_mass_kkg/summass, variabilityweight = massperc * score) %>%
+  #mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, name_region, name_cropgroup, name_ai) %>%
+  summarize(wd = sum(applied_mass_kkg)/sum(treated_area_kha))
+
+summary_wdhaother %>%
+        #filter(name_ai == "Trifloxystrobin") %>%
+  #filter(wd > 0.001) %>%
+        ggplot(aes(x = name_crop_earthstat, y = wd)) +
+        geom_boxplot(size = 1,
+                         outlier.shape = NA,
+                         outlier.color = "black",
+                         outlier.size = 3) +
+        geom_jitter(alpha = 0.8, width = 0.2, aes(color = name_region)) +
+        theme_minimal() +
+        scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          labels = trans_format("log10", math_format(10^.x))) +
+            #facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+            #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+        scale_color_brewer(palette="Set2") +
+  annotation_logticks(sides = "b") +
+  theme(legend.position = c(0.2, 0.5)) +
+  xlab("Crop Group") + ylab("Weighted Average Dose [kg/ha]") +
+  theme(axis.text = element_text(size = 12), axis.title = element_text(size = 12)) +
+  coord_flip()
+            #coord_flip()
+
+p
+```
+#boxplot dose on each crop
+```{r}
+vec<- summary_wdhaotherindi%>%
+  #filter(name_ai == "Glyphosate") %>%
+  #filter(name_crop_earthstat != "other") %>%
+  #filter(name_crop_earthstat != "pea") %>%
+  #filter(name_crop_earthstat != "bean") %>%
+  group_by(name_crop_earthstat) %>%
+  summarize(m = median(wd, na.rm = TRUE)) %>%
+  ungroup() %>%
+  #group_by(name_cropgroup.y) %>%
+  arrange(desc(m)) %>%
+  pull(name_crop_earthstat)
+vec
+unique()
+
+give.n <- function(x){
+  return(c(y = median(x)*1.05, label = length(x))) 
+  # experiment with the multiplier to find the perfect position
+}
+
+unique(summary_wdhaotherindi$name_indication)
+veccount <- summary_wdhaotherindi %>%
+  group_by(name_crop_earthstat) %>%
+  summarize(m = median(wd, na.rm = TRUE), count = n_distinct(name_country)) %>%
+  ungroup() %>%
+  arrange(desc(m)) %>%
+  pull(count)
+
+xlabs <- paste(vec,",", veccount)
+
+summary_wdhaotherindi %>%
+  mutate(name_indicationgroup = case_when(name_indication == "FUNGICIDES" ~ "Fungi/Insecti",
+                                           name_indication == "INSECTICIDES" ~ "Fungi/Insecti",
+                                           name_indication == "HERBICIDES" ~ "Herbi",
+                                           name_indication == "GROWTH-REGULATORS" ~"Others",
+                                           name_indication == "OTHERS"  ~"Others",
+                                           name_indication == "RODENTICIDES"  ~"Others")) %>%
+  #filter(!is.na(name_indicationgroup)) %>%
+  #filter(name_indicationgroup == "Herbicides") %>%
+  filter(!is.na(name_crop_earthstat)) %>%
+  #filter(!is.na(dose_kgperha)) %>%
+  #filter(dose_kgperha != 0) %>%
+  #filter(name_ai == "Glyphosate") %>%
+  #filter(name_cropgroup.y == "Cereals") %>%
+  ggplot(aes(x = factor(name_crop_earthstat, levels = vec), y = wd)) +
+  geom_boxplot(#size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 1,
+               aes(fill = name_cropgroup),
+               alpha = 0.7,
+               na.rm = TRUE,
+               position = "identity") +
+  #geom_jitter(alpha = 0.3, width = 0.01, aes(color = name_region)) +
+  theme_minimal() +
+  scale_x_discrete(drop = FALSE, labels = xlabs) +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          labels = trans_format("log10", math_format(10^.x))) +
+  
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  #facet_wrap(~name_cropgroup.y, ncol = 11) +
+  scale_color_brewer(palette="Paired", drop = FALSE) +
+  scale_fill_brewer(palette = "Set3", drop = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  #stat_summary(fun.data = give.n, geom = "text", fun.y = median,
+                  #position = position_dodge(width = 0.75), size = 2) +
+  xlab("crop") +
+  ylab("dose, kg/ha") +
+  coord_flip()
+ ggsave("20220607boxplotpercropallwithcount.png", width = 30, height = 40, units = "cm")
+```
+
+
+```{r}
+app_multi <- application_imputation_combi %>%
+  group_by(name_country, name_crop_earthstat, name_ai, casrn_chemical) %>%
+  summarize(count_app = n_distinct(name_refapp), name_app = toString(unique(name_refapp)))
+```
+
+
+```{r}
+masstotal <- input_app %>%
+  group_by(casrn_chemical, name_ai) %>%
+  summarize(totalmass_kkg = sum(applied_mass_kkg))
+write.csv(masstotal, "masstotal.csv")
+
+countrymasstotal <- input_app %>%
+  group_by(name_country, casrn_chemical, name_ai) %>%
+  summarize(totalcountrymass_kkg = sum(applied_mass_kkg))
+write.csv(countrymasstotal, "countrymasstotal.csv")
+```
+
+```{r}
+result_countrychem <- read.csv("C:/me/data gaps/20220706cpp_prob_4_perc_full.csv")
+result_countrychem_wide <- result_countrychem %>%
+  group_by(name_country, name_crop_earthstat, layer_climate, name_ai, name_indication, name_cropgroup) %>%
+  summarize(minaerialyes = min(aerialapplicationyes), 
+            maxaerialyes = max(aerialapplicationyes),
+            minboomyes = min(boomsprayeryes),
+            maxboomyes = max(boomsprayeryes),
+            minhandyes = min(handoperatedsprayeryes),
+            maxhandyes = max(handoperatedsprayeryes),
+            mintunnelyes = min(tunnelsprayeryes),
+            maxtunnelyes = max(tunnelsprayeryes)) %>%
+  mutate(aerial = case_when(minaerialyes < 0.05 ~ 0,
+                               TRUE ~ minaerialyes),
+         boomsprayer = case_when(minboomyes < 0.05 ~ 0,
+                               TRUE ~ minboomyes),
+         handoperatedsprayer = case_when(minhandyes < 0.05 ~ 0,
+                               TRUE ~ minhandyes),
+         tunnelsprayer = case_when(mintunnelyes < 0.05 ~0,
+                               TRUE ~ mintunnelyes)) %>%
+  filter(aerial >0 & boomsprayer>0 |
+           aerial >0 & handoperatedsprayer >0 | 
+           aerial >0 & tunnelsprayer >0 |
+           aerial >0 & boomsprayer >0 & handoperatedsprayer >0 |
+           aerial >0 & handoperatedsprayer >0 & tunnelsprayer >0 |
+           aerial >0 & boomsprayer >0 & tunnelsprayer >0 |
+           aerial >0 & boomsprayer >0 & handoperatedsprayer >0 & tunnelsprayer >0|
+           boomsprayer >0 & handoperatedsprayer >0 |
+           boomsprayer >0 & tunnelsprayer >0 |
+           handoperatedsprayer >0 & tunnelsprayer >0 |
+           boomsprayer >0 & handoperatedsprayer >0 & tunnelsprayer >0
+         )
+
+write.csv(result_countrychem_wide, "20220629result_countrychem_wide_filter.csv")
+
+cm.ccclimateindication <- as.data.table(table(result_countrychem_wide$countaerial, result_countrychem_wide$countaerialorig, result_countrychem_wide$countboom, result_countrychem_wide$countboomorig, result_countrychem_wide$counthand, result_countrychem_wide$counthandorig, result_countrychem_wide$counttunnel, result_countrychem_wide$counttunnelorig))
+sum(cm.ccclimateindication$N)
+```
+
+```{r}
+write.csv(summary_wdhaother)
+```
+

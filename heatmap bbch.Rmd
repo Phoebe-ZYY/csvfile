@@ -1,0 +1,952 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+## heatmap for bbch vs. crop/crop class, chemical/chemical class, combination 
+#2018
+```{r}
+input_bayer_2018_bbch
+bbch <- input_bayer_2018_bbch %>%
+  select(id_bayer, id_scenariobayer, name_country, name_region, name_crop_bayer, name_crop_earthstat, name_crop_FAO, name_cropgroup.x, name_cropgroup.y, casrn_chemical, name_ai, name_cropstage,code_bbch_bayer,  `treated_area_[1000ha/yr]`, name_indication, `applied_mass_[1000kg/yr]`,  Product, Distributor, name_app, name_appagrobase, name_refapp) 
+
+chemical_mass <- bbch %>%
+  group_by(name_ai, name_crop_earthstat) %>%
+  summarize(sum = sum(`applied_mass_[1000kg/yr]`))
+
+bbch_count <- bbch %>%
+  group_by(name_crop_earthstat, name_ai, name_country) %>%
+  #summarize(count = n_distinct(name_cropstage))
+  summarize(count = n_distinct(bbch_group))
+
+bbch_application <- bbch %>%
+  #group_by(name_appagrobase, name_cropstage, bbch_group) %>%
+  group_by(name_appagrobase, bbch_group) %>%
+  summarize(count = n())
+
+unique(bbch$bbch_group)
+
+n_distinct(input_bayer_2018_bbch$name_cropstage)
+
+unique(bbch$name_cropstage)
+bbch <- bbch %>%
+  filter(name_cropstage != "9999-UNDEFINED") %>%
+  filter(!is.na(code_bbch_bayer))
+
+assn_cropstage_bbch <- read_excel("C:/me/calculation/assn_cropstage_bbch.xlsx", sheet = 3)
+
+bbch <- bbch %>%
+  left_join(assn_cropstage_bbch, by = c("name_cropstage" = "name_cropstage")) 
+
+bbch_crop <- bbch %>%
+  group_by(name_crop_earthstat, name_cropgroup.y, min, max) %>%
+  summarize(sum = sum(`applied_mass_[1000kg/yr]`)) %>%
+  ungroup() %>%
+  mutate(minnum = as.numeric(min), maxnum = as.numeric(max), avg = sum/(maxnum-minnum+1))  %>%
+  filter(!is.na(min))
+
+bbchgroup_crop <- bbch %>%
+  group_by(bbch_group) %>%
+  summarize(sum = sum(`applied_mass_[1000kg/yr]`), count = n())
+
+bbch_distinct <- bbch %>%
+  filter(!is.na(min)) %>%
+  group_by(min, max) %>%
+  summarize(count = n(), sum = sum(`applied_mass_[1000kg/yr]`)) 
+n_distinct(bbch$min, bbch$max)
+```
+#2020
+```{r}
+heatmap_bbch <- input2020_bbch %>%
+  select(name_country, name_region, name_crop_bayer, name_crop_earthstat, name_cropgroup, casrn_chemical, name_ai, name_cropstage,  treated_area_kha, name_indication, applied_mass_kkg, min, max, bbch_group) 
+
+bbch_distinct <- heatmap_bbch %>%
+  filter(!is.na(min)) %>%
+  group_by(min, max) %>%
+  summarize(count = n(), sum = sum(applied_mass_kkg)) 
+```
+
+```{r}
+rect = read_xlsx("C:/me/input2020/bbchgroup.xlsx")
+
+p<-   bbch_distinct %>% 
+  #mutate(min = as.numeric(min), max = as.numeric(max)) %>%
+  filter(max != "100") %>%
+  ggplot(., aes(x = min, y = max, fill = count)) +  # heatmap of row count, limits from 0 to 6000
+  #=ggplot(., aes(x = min, y = max, fill = sum)) +  # heatmap of applied mass sum, limits from 0 to 30000
+  geom_tile(color="white",size=0.1) + 
+  #scale_fill_viridis(discrete = FALSE, option = "D") + 
+  scale_fill_gradient2(mid = "light grey", high = "darkred", limits = c(0,6000), oob = scales::squish, na.value = "light grey") +
+  coord_equal() + 
+  #facet_wrap(~`Continent (USEtox)`, ncol=2) +
+  theme_tufte(base_family="Helvetica") +
+  theme(axis.ticks=element_blank()) +
+  theme(axis.text=element_text(size=10)) +
+  theme(axis.text.x = element_text(angle = 90))+
+  theme(panel.spacing.x=unit(1, "cm")) +
+  theme(panel.spacing.y=unit(0.5, "cm"))  +
+  theme(strip.text=element_text(hjust=0)) +
+  theme(plot.title=element_text(hjust=0)) +
+  theme(panel.border=element_blank()) +
+  theme(legend.title=element_text(size=6)) +
+  theme(legend.title.align=1) +
+  theme(legend.text=element_text(size=6)) +
+  theme(legend.position="bottom") +
+  theme(legend.key.size=unit(0.2, "cm")) +
+  theme(legend.key.width=unit(1, "cm")) +
+  labs(x = "min", y = "max")
+ 
+
+
+p <- p + geom_rect(data = rect, mapping = aes(xmin  = x1, xmax = x2, ymin = y1, ymax = y2), color = "grey", alpha = 0.2)
+p
+  
+```
+
+```{r}
+  bbch_distinct %>% 
+  #mutate(min = as.numeric(min), max = as.numeric(max)) %>%
+  filter(max != "100") %>%
+  filter(sum <= 10000) %>%
+  ggplot(., aes(x = sum, y = count)) +  
+  geom_point(size=2) + 
+  geom_smooth(method=lm) +
+  #scale_fill_viridis(discrete = FALSE, option = "D") + 
+  #scale_fill_gradient2(mid = "light grey", high = "darkred", oob = scales::squish, na.value = "light grey") +
+  #coord_equal() + 
+  #facet_wrap(~`Continent (USEtox)`, ncol=2) +
+  theme_tufte(base_family="Helvetica") +
+  theme(axis.ticks=element_blank()) +
+  theme(axis.text=element_text(size=10)) +
+  theme(axis.text.x = element_text(angle = 90))+
+  theme(panel.spacing.x=unit(1, "cm")) +
+  theme(panel.spacing.y=unit(0.5, "cm"))  +
+  theme(strip.text=element_text(hjust=0)) +
+  theme(plot.title=element_text(hjust=0)) +
+  theme(panel.border=element_blank()) +
+  theme(legend.title=element_text(size=6)) +
+  theme(legend.title.align=1) +
+  theme(legend.text=element_text(size=6)) +
+  theme(legend.position="bottom") +
+  theme(legend.key.size=unit(0.2, "cm")) +
+  theme(legend.key.width=unit(1, "cm")) +
+  labs(x = "sum applied mass", y = "count rows")
+```
+
+
+# row count
+# check country coverage by chemical-crop 40% with data
+```{r}
+bbch_country <- input_bayer_2018_bbch %>%
+  mutate(bbch_YN = case_when(name_cropstage == "9999-UNDEFINED" ~ "NO",
+                                 TRUE ~ "YES")) %>%
+  mutate(application_YN = case_when(name_appagrobase == "-" ~ "NO",
+                                    TRUE ~ "YES"))
+
+bbch_country <- bbch_country %>%
+  select(id_bayer, id_scenariobayer, name_country, name_region, name_crop_bayer, name_crop_earthstat, name_crop_FAO, name_cropgroup.x, name_cropgroup.y, casrn_chemical, name_ai, name_cropstage,code_bbch_bayer,  `treated_area_[1000ha/yr]`, name_indication, `applied_mass_[1000kg/yr]`,  Product, Distributor, name_app, name_appagrobase, name_refapp, bbch_YN, application_YN) 
+
+bbch_country <- bbch_country %>%
+  mutate(bbch_aplication_YN = case_when(bbch_YN == "YES" & application_YN == "YES" ~ "YES",
+                                        TRUE ~ "NO"))
+
+bbch_country_g <- bbch_country %>%
+  group_by(name_country) %>%
+  mutate(count_all = n()) %>%
+  ungroup() %>%
+  group_by(name_country, bbch_YN, application_YN, count_all) %>%
+  summarize(count = n()) %>%
+  ungroup() %>%
+  arrange(desc(count/count_all)) %>%
+  mutate(perc = percent(count/count_all, accuracy = 0.01))
+
+bbch_cc <- bbch_country %>%
+  group_by(name_crop_earthstat, name_ai) %>%
+  mutate(count_all = n()) %>%
+  ungroup() %>%
+  group_by(name_crop_earthstat, name_ai, bbch_aplication_YN, count_all) %>%
+  summarize(count = n())
+n_distinct(input_bayer_2018_bbch$name_crop_earthstat, input_bayer_2018_bbch$name_ai)
+
+bbch_cc_no <- bbch_cc %>%
+  filter(count == count_all) %>%
+  filter(bbch_aplication_YN == "NO")
+n_distinct(bbch$name_country)
+
+# add country in the group_by
+bbch_cc <- bbch_country %>%
+  group_by(name_crop_earthstat, name_ai, name_country) %>%
+  mutate(count_all = n()) %>%
+  ungroup() %>%
+  group_by(name_crop_earthstat, name_ai, bbch_aplication_YN, count_all, name_country) %>%
+  summarize(count = n())
+
+bbch_ccc <- bbch_cc %>%
+  group_by(name_country) %>%
+  summarize(count_all = n_distinct(name_crop_earthstat, name_ai, na.rm = TRUE))
+
+n_distinct(input_bayer_2018_bbch$name_crop_earthstat, input_bayer_2018_bbch$name_ai)
+
+bbch_cc_no <- bbch_cc %>%
+  filter(count == count_all) %>%
+  filter(bbch_aplication_YN == "NO")
+
+bbch_ccc_no <- bbch_cc_no %>%
+  group_by(name_country) %>%
+  summarize(count = n_distinct(name_crop_earthstat, name_ai, na.rm = TRUE))
+
+bbch_ccc <- bbch_ccc %>%
+  left_join(bbch_ccc_no, by = c("name_country" = "name_country")) %>%
+  arrange(count/count_all) %>%
+  mutate(perc = percent(count/count_all, accuracy = 0.01)) %>%
+  mutate(comparison = percent(count_all/22451, accuracy = 0.01))
+
+ccc <- input_bayer_2018_bbch %>%
+  group_by(name_country) %>%
+  summarize(count = n_distinct(name_crop_earthstat, name_ai, na.rm = TRUE)) %>%
+  arrange(desc(count)) %>%
+  mutate(comparison = percent(count/22451, accuracy = 0.01))
+
+
+
+n_distinct(bbch$name_country)
+```
+
+# coverage by crop group - chemical 55% with data
+```{r}
+bbch_cc <- bbch_country %>%
+  group_by(name_cropgroup.y, name_ai) %>%
+  mutate(count_all = n()) %>%
+  ungroup() %>%
+  group_by(name_cropgroup.y, name_ai, bbch_aplication_YN, count_all) %>%
+  summarize(count = n())
+n_distinct(input_bayer_2018_bbch$name_cropgroup.y, input_bayer_2018_bbch$name_ai) #5640
+
+bbch_cc_no <- bbch_cc %>%
+  filter(count == count_all) %>%
+  filter(bbch_aplication_YN == "NO")
+n_distinct(bbch$name_country)
+
+bbch_cc_yes <- bbch_cc %>%
+  #filter(count == count_all) %>%
+  filter(bbch_aplication_YN == "YES")
+unique(bbch_cc_yes$name_cropgroup.y)
+n_distinct(bbch_cc_yes$name_ai, bbch_cc_yes$name_cropgroup.y) #3127
+
+# add country in the group_by
+bbch_cc <- bbch_country %>%
+  group_by(name_cropgroup.y, name_ai, name_country) %>%
+  mutate(count_all = n()) %>%
+  ungroup() %>%
+  group_by(name_cropgroup.y, name_ai, bbch_aplication_YN, count_all, name_country) %>%
+  summarize(count = n())
+
+bbch_ccc <- bbch_cc %>%
+  group_by(name_country) %>%
+  summarize(count_all = n_distinct(name_cropgroup.y, name_ai, na.rm = TRUE))
+
+n_distinct(bbch_cc_no$name_cropgroup.y, bbch_cc_no$name_ai)
+
+bbch_cc_no <- bbch_cc %>%
+  filter(count == count_all) %>%
+  filter(bbch_aplication_YN == "NO")
+
+bbch_ccc_no <- bbch_cc_no %>%
+  group_by(name_country) %>%
+  summarize(count = n_distinct(name_cropgroup.y, name_ai, na.rm = TRUE))
+
+bbch_ccc <- bbch_ccc %>%
+  left_join(bbch_ccc_no, by = c("name_country" = "name_country")) %>%
+  arrange(count/count_all) %>%
+  mutate(perc = percent(count/count_all, accuracy = 0.01)) %>%
+  mutate(comparison = percent(count_all/5640, accuracy = 0.01))
+
+ccc <- input_bayer_2018_bbch %>%
+  group_by(name_country) %>%
+  summarize(count = n_distinct(name_cropgroup.y, name_ai, na.rm = TRUE)) %>%
+  arrange(desc(count)) %>%
+  mutate(comparison = percent(count/5640, accuracy = 0.01))
+
+
+
+n_distinct(bbch$name_country)
+```
+
+# coverage by crop - chemical group 50% with data
+# 25% chemicals do not have chemical groups, account for 8% rows
+```{r}
+chemclass <- read_excel("C:/me/dose regression/chemclass_uni.xlsx", sheet = 2)
+n_distinct(chemclass$class1)
+
+chemclass_1 <- chemclass %>%
+  select(casrn_chemical, class1, name_ai)
+
+chemclass_dup <- chemclass_1 %>%
+  group_by(casrn_chemical) %>%
+  filter(n() >1)
+
+bbch_country_chemclass <- bbch_country %>%
+  left_join(chemclass_1, by = c("casrn_chemical" = "casrn_chemical")) #471741
+
+bbch_country_chemclass <- bbch_country_chemclass %>%
+  filter(!is.na(class1)) %>%
+  filter(class1 != "unclassified")#437021, lose 8% rows
+
+bbch_cc <- bbch_country_chemclass %>%
+  group_by(name_crop_earthstat, class1) %>%
+  mutate(count_all = n()) %>%
+  ungroup() %>%
+  group_by(name_crop_earthstat, class1, bbch_aplication_YN, count_all) %>%
+  summarize(count = n())
+n_distinct(bbch_cc$name_crop_earthstat, bbch_cc$class1) #5677
+
+bbch_cc_no <- bbch_cc %>%
+  filter(count == count_all) %>%
+  filter(bbch_aplication_YN == "NO")
+n_distinct(bbch$name_country)
+
+bbch_cc_yes <- bbch_cc %>%
+  #filter(count == count_all) %>%
+  filter(bbch_aplication_YN == "YES")
+unique(bbch_cc_yes$name_crop_earthstat)
+n_distinct(bbch_cc_yes$class1, bbch_cc_yes$name_crop_earthstat) #2851
+
+# add country in the group_by
+bbch_cc <- bbch_country_chemclass %>%
+  group_by(name_crop_earthstat, class1, name_country) %>%
+  mutate(count_all = n()) %>%
+  ungroup() %>%
+  group_by(name_crop_earthstat, class1, bbch_aplication_YN, count_all, name_country) %>%
+  summarize(count = n())
+
+bbch_ccc <- bbch_country_chemclass %>%
+  group_by(name_country) %>%
+  summarize(count_all = n_distinct(name_crop_earthstat, class1, na.rm = TRUE))
+
+n_distinct(bbch_cc_no$name_crop_earthstat, bbch_cc_no$class1)
+
+bbch_cc_no <- bbch_cc %>%
+  filter(count == count_all) %>%
+  filter(bbch_aplication_YN == "NO")
+
+bbch_ccc_no <- bbch_cc_no %>%
+  group_by(name_country) %>%
+  summarize(count = n_distinct(name_crop_earthstat, class1, na.rm = TRUE))
+
+bbch_ccc <- bbch_ccc %>%
+  left_join(bbch_ccc_no, by = c("name_country" = "name_country")) %>%
+  arrange(count/count_all) %>%
+  mutate(perc = percent(count/count_all, accuracy = 0.01)) %>%
+  mutate(comparison = percent(count_all/5677, accuracy = 0.01))
+
+ccc <- input_bayer_2018_bbch %>%
+  group_by(name_country) %>%
+  summarize(count = n_distinct(name_crop_earthstat, class1, na.rm = TRUE)) %>%
+  arrange(desc(count)) %>%
+  mutate(comparison = percent(count/5677, accuracy = 0.01))
+
+
+
+n_distinct(bbch$name_country)
+```
+
+
+
+# coverage by crop group - chemical group 72% with data
+```{r}
+chemclass <- read_excel("C:/me/dose regression/chemclass_uni.xlsx", sheet = 2)
+n_distinct(chemclass$class1)
+
+chemclass_1 <- chemclass %>%
+  select(casrn_chemical, class1, name_ai)
+
+chemclass_dup <- chemclass_1 %>%
+  group_by(casrn_chemical) %>%
+  filter(n() >1)
+
+bbch_country_chemclass <- bbch_country %>%
+  left_join(chemclass_1, by = c("casrn_chemical" = "casrn_chemical")) #471741
+
+bbch_country_chemclass <- bbch_country_chemclass %>%
+  filter(!is.na(class1)) #447303, lose 5% rows
+
+bbch_cc <- bbch_country_chemclass %>%
+  group_by(name_cropgroup.y, class1) %>%
+  mutate(count_all = n()) %>%
+  ungroup() %>%
+  group_by(name_cropgroup.y, class1, bbch_aplication_YN, count_all) %>%
+  summarize(count = n())
+n_distinct(bbch_cc$name_cropgroup.y, bbch_cc$class1) #939
+
+bbch_cc_no <- bbch_cc %>%
+  filter(count == count_all) %>%
+  filter(bbch_aplication_YN == "NO")
+n_distinct(bbch$name_country)
+
+bbch_cc_yes <- bbch_cc %>%
+  #filter(count == count_all) %>%
+  filter(bbch_aplication_YN == "YES")
+unique(bbch_cc_yes$name_cropgroup.y)
+n_distinct(bbch_cc_yes$class1, bbch_cc_yes$name_cropgroup.y) #679
+
+# add country in the group_by
+bbch_cc <- bbch_country_chemclass %>%
+  group_by(name_cropgroup.y, class1, name_country) %>%
+  mutate(count_all = n()) %>%
+  ungroup() %>%
+  group_by(name_cropgroup.y, class1, bbch_aplication_YN, count_all, name_country) %>%
+  summarize(count = n())
+
+bbch_ccc <- bbch_country_chemclass %>%
+  group_by(name_country) %>%
+  summarize(count_all = n_distinct(name_cropgroup.y, class1, na.rm = TRUE))
+
+n_distinct(bbch_cc_no$name_cropgroup.y, bbch_cc_no$class1)
+
+bbch_cc_no <- bbch_cc %>%
+  filter(count == count_all) %>%
+  filter(bbch_aplication_YN == "NO")
+
+bbch_ccc_no <- bbch_cc_no %>%
+  group_by(name_country) %>%
+  summarize(count = n_distinct(name_cropgroup.y, class1, na.rm = TRUE))
+
+bbch_ccc <- bbch_ccc %>%
+  left_join(bbch_ccc_no, by = c("name_country" = "name_country")) %>%
+  arrange(count/count_all) %>%
+  mutate(perc = percent(count/count_all, accuracy = 0.01)) %>%
+  mutate(comparison = percent(count_all/939, accuracy = 0.01))
+
+ccc <- input_bayer_2018_bbch %>%
+  group_by(name_country) %>%
+  summarize(count = n_distinct(name_cropgroup.y, class1, na.rm = TRUE)) %>%
+  arrange(desc(count)) %>%
+  mutate(comparison = percent(count/939, accuracy = 0.01))
+
+
+
+n_distinct(bbch$name_country)
+```
+
+
+# coverage by crop group - chemical group 79% with data only for bbch
+```{r}
+chemclass <- read_excel("C:/me/dose regression/chemclass_uni.xlsx", sheet = 2)
+n_distinct(chemclass$class1)
+
+chemclass_1 <- chemclass %>%
+  select(casrn_chemical, class1, name_ai)
+
+chemclass_dup <- chemclass_1 %>%
+  group_by(casrn_chemical) %>%
+  filter(n() >1)
+
+bbch_country_chemclass <- bbch_country %>%
+  left_join(chemclass_1, by = c("casrn_chemical" = "casrn_chemical")) #471741
+
+bbch_country_chemclass <- bbch_country_chemclass %>%
+  filter(!is.na(class1)) #447303, lose 5% rows
+
+bbch_cc <- bbch_country_chemclass %>%
+  group_by(name_cropgroup.y, class1) %>%
+  mutate(count_all = n()) %>%
+  ungroup() %>%
+  group_by(name_cropgroup.y, class1, bbch_YN, count_all) %>%
+  summarize(count = n())
+n_distinct(bbch_cc$name_cropgroup.y, bbch_cc$class1) #939
+
+bbch_cc_no <- bbch_cc %>%
+  filter(count == count_all) %>%
+  filter(bbch_YN == "NO")
+n_distinct(bbch$name_country)
+
+bbch_cc_yes <- bbch_cc %>%
+  #filter(count == count_all) %>%
+  filter(bbch_YN == "YES")
+unique(bbch_cc_yes$name_cropgroup.y)
+n_distinct(bbch_cc_yes$class1, bbch_cc_yes$name_cropgroup.y) #746
+
+# add country in the group_by
+bbch_cc <- bbch_country_chemclass %>%
+  group_by(name_cropgroup.y, class1, name_country) %>%
+  mutate(count_all = n()) %>%
+  ungroup() %>%
+  group_by(name_cropgroup.y, class1, bbch_YN, count_all, name_country) %>%
+  summarize(count = n())
+
+bbch_ccc <- bbch_country_chemclass %>%
+  group_by(name_country) %>%
+  summarize(count_all = n_distinct(name_cropgroup.y, class1, na.rm = TRUE))
+
+n_distinct(bbch_cc_no$name_cropgroup.y, bbch_cc_no$class1)
+
+bbch_cc_no <- bbch_cc %>%
+  filter(count == count_all) %>%
+  filter(bbch_YN == "NO")
+
+bbch_ccc_no <- bbch_cc_no %>%
+  group_by(name_country) %>%
+  summarize(count = n_distinct(name_cropgroup.y, class1, na.rm = TRUE))
+
+bbch_ccc <- bbch_ccc %>%
+  left_join(bbch_ccc_no, by = c("name_country" = "name_country")) %>%
+  arrange(count/count_all) %>%
+  mutate(perc = percent(count/count_all, accuracy = 0.01)) %>%
+  mutate(comparison = percent(count_all/939, accuracy = 0.01))
+
+ccc <- input_bayer_2018_bbch %>%
+  group_by(name_country) %>%
+  summarize(count = n_distinct(name_cropgroup.y, class1, na.rm = TRUE)) %>%
+  arrange(desc(count)) %>%
+  mutate(comparison = percent(count/939, accuracy = 0.01))
+
+
+
+n_distinct(bbch$name_country)
+```
+
+
+## set functions to duplicate rows
+```{r}
+duplicate_rows <- function(crop, cropgroup, min, max, minnum, maxnum, avg) {
+  bbch <- minnum:maxnum
+  repeated_rows <- data.frame("crop" = crop, "cropgroup" = cropgroup, "min" = min, "max" = max, "minnum" = minnum, "maxnum" = maxnum, "avg" = avg, "bbch" = bbch)
+  
+  repeated_rows
+}
+
+expanded_rows <- Map(f = duplicate_rows, bbch_crop$name_crop_earthstat, bbch_crop$name_cropgroup.y, bbch_crop$min, bbch_crop$max, bbch_crop$minnum, bbch_crop$maxnum, bbch_crop$avg)
+
+bbch_crop_grid <- do.call(rbind, expanded_rows)
+```
+
+
+## group by bbch (single, 1,2,3,... 100) and sum the average mass
+```{r}
+bbch_crop_s <- bbch_crop_grid %>%
+  filter(cropgroup == "Vegetables&Melons") %>%
+  #filter(crop == "triticale") %>%
+  group_by(crop, bbch) %>%
+  summarize(applied_avg_mass = sum(avg))
+```
+
+## heatmap
+```{r}
+#n_distinct(bbch_crop_s$crop)
+#n_distinct(bbch_crop_s$bbch)
+
+# 101 * 109 heatmap
+
+bbch_crop_s %>% 
+  ggplot(., aes(x = bbch, y = crop, fill = applied_avg_mass)) + 
+  geom_tile(color="white",size=0.1) + 
+  #scale_fill_viridis(discrete = FALSE, option = "D") + 
+  scale_fill_gradient2(mid = "light grey", high = "darkred", limits = c(0,400), oob = scales::squish, na.value = "light grey") +
+  coord_equal() + 
+  #facet_wrap(~`Continent (USEtox)`, ncol=2) +
+  theme_tufte(base_family="Helvetica") +
+  theme(axis.ticks=element_blank()) +
+  theme(axis.text=element_text(size=5)) +
+  theme(axis.text.x = element_text(angle = 90))+
+  theme(panel.spacing.x=unit(1, "cm")) +
+  theme(panel.spacing.y=unit(0.5, "cm"))  +
+  theme(strip.text=element_text(hjust=0)) +
+  theme(plot.title=element_text(hjust=0)) +
+  theme(panel.border=element_blank()) +
+  theme(legend.title=element_text(size=6)) +
+  theme(legend.title.align=1) +
+  theme(legend.text=element_text(size=6)) +
+  theme(legend.position="bottom") +
+  theme(legend.key.size=unit(0.2, "cm")) +
+  theme(legend.key.width=unit(1, "cm")) +
+  labs(x = "BBCH", y = "Crop")
+```
+
+# introduce alanwood chemical class (only choose the first one)
+```{r}
+alanwood <- read_xlsx("/Users/yuyue/Documents/Research/data gaps/chemicalgroup_alanwood.xlsx") 
+alanwood <- alanwood %>%
+  select(name, registry, `1`) %>%
+  mutate(chemicalclass = `1`) %>%
+  mutate(chemicalclass = gsub("insecticides", "", chemicalclass)) %>%
+  mutate(chemicalclass = gsub("herbicides", "", chemicalclass)) %>%
+  mutate(chemicalclass = gsub("acaricides", "", chemicalclass)) %>%
+  mutate(chemicalclass = gsub("fungicides", "", chemicalclass)) %>%
+  mutate(chemicalclass = gsub("nematicides", "", chemicalclass)) %>%
+  mutate(chemicalclass = gsub("rodenticides", "", chemicalclass))
+unique(alanwood$chemicalclass)
+
+# remove class = NA, /q, unkonw
+alanwood_c <- alanwood %>%
+  filter(chemicalclass != "NA") %>%
+  filter(!is.na(chemicalclass)) %>%
+  #filter(chemicalclass != "unknown") %>%
+  filter(chemicalclass != "/q")
+```
+
+
+```{r}
+bbch_chemical <- bbch %>%
+  left_join(alanwood_c, by = c("casrn_chemical" = "registry"))
+
+bbch_chemical_NA <-
+  bbch_chemical %>%
+  filter(is.na(chemicalclass))
+unique(bbch_chemical_NA$casrn_chemical)
+```
+
+```{r}
+bbch_chemical_r <- bbch_chemical %>%
+  filter(!is.na(chemicalclass)) %>%
+  group_by(chemicalclass, min, max) %>%
+  summarize(sum = sum(`applied_mass_[1000kg/yr]`)) %>%
+  ungroup() %>%
+  mutate(minnum = as.numeric(min), maxnum = as.numeric(max), avg = sum/(maxnum-minnum+1))  %>%
+  filter(!is.na(min))
+```
+
+## set functions to duplicate rows
+```{r}
+duplicate_rows <- function(chemicalclass, min, max, minnum, maxnum, avg) {
+  bbch <- minnum:maxnum
+  repeated_rows <- data.frame("chemicalclass" = chemicalclass, "min" = min, "max" = max, "minnum" = minnum, "maxnum" = maxnum, "avg" = avg, "bbch" = bbch)
+  
+  repeated_rows
+}
+
+expanded_rows <- Map(f = duplicate_rows, bbch_chemical_r$chemicalclass, bbch_chemical_r$min, bbch_chemical_r$max, bbch_chemical_r$minnum, bbch_chemical_r$maxnum, bbch_chemical_r$avg)
+
+bbch_chemical_grid <- do.call(rbind, expanded_rows)
+```
+
+
+## group by bbch (single, 1,2,3,... 100) and sum the average mass
+```{r}
+bbch_chemical_s <- bbch_chemical_grid %>%
+  #filter(cropgroup == "Vegetables&Melons") %>%
+  #filter(crop == "triticale") %>%
+  group_by(chemicalclass, bbch) %>%
+  summarize(applied_avg_mass = sum(avg))
+```
+
+#heatmap
+```{r}
+#n_distinct(bbch_crop_s$crop)
+#n_distinct(bbch_crop_s$bbch)
+
+# 101 * 109 heatmap
+
+bbch_chemical_s %>% 
+  ggplot(., aes(x = bbch, y = chemicalclass, fill = applied_avg_mass)) + 
+  geom_tile(color="white",size=0.1) + 
+  #scale_fill_viridis(discrete = FALSE, option = "D") + 
+  scale_fill_gradient2(mid = "light grey", high = "darkred", limits = c(0,1000), oob = scales::squish, na.value = "light grey") +
+  coord_equal() + 
+  #facet_wrap(~`Continent (USEtox)`, ncol=2) +
+  theme_tufte(base_family="Helvetica") +
+  theme(axis.ticks=element_blank()) +
+  theme(axis.text=element_text(size=5)) +
+  theme(axis.text.x = element_text(angle = 90))+
+  theme(panel.spacing.x=unit(1, "cm")) +
+  theme(panel.spacing.y=unit(0.5, "cm"))  +
+  theme(strip.text=element_text(hjust=0)) +
+  theme(plot.title=element_text(hjust=0)) +
+  theme(panel.border=element_blank()) +
+  theme(legend.title=element_text(size=6)) +
+  theme(legend.title.align=1) +
+  theme(legend.text=element_text(size=6)) +
+  theme(legend.position="bottom") +
+  theme(legend.key.size=unit(0.2, "cm")) +
+  theme(legend.key.width=unit(1, "cm")) +
+  labs(x = "BBCH", y = "Chemicalclass")
+```
+
+
+# expert imputation dataset for application method
+```{r}
+application_n <- input_bayer_2018_bbch %>%
+  select(id_bayer, id_scenariobayer, name_country, name_region, name_crop_bayer, name_crop_earthstat, name_crop_FAO, name_cropgroup.x, name_cropgroup.y, casrn_chemical, name_ai, name_cropstage,code_bbch_bayer,  `treated_area_[1000ha/yr]`, name_indication, `applied_mass_[1000kg/yr]`,  Product, Distributor, name_app, name_appagrobase, name_refapp) %>%
+  filter(name_appagrobase == "-")
+
+unique(application_n$name_app)
+```
+
+```{r}
+application_n1 <- application_n %>%
+  group_by(name_country, casrn_chemical, name_ai, name_crop_earthstat) %>%
+  summarize(count = n(), sum = sum(`applied_mass_[1000kg/yr]`))
+```
+
+
+```{r}
+application_n2 <- application_n %>%
+  group_by(name_country, name_indication, name_crop_earthstat) %>%
+  summarize(count = n(), sum = sum(`applied_mass_[1000kg/yr]`))
+```
+
+```{r}
+application_n3 <- application_n %>%
+  group_by(name_country, name_indication, name_cropgroup.y) %>%
+  summarize(count = n(), sum = sum(`applied_mass_[1000kg/yr]`))
+```
+
+```{r}
+application_n4 <- application_n %>%
+  group_by(name_country, name_cropgroup.y) %>%
+  summarize(count = n(), sum = sum(`applied_mass_[1000kg/yr]`))
+```
+
+```{r}
+application_n5 <- application_n %>%
+  group_by(name_country, name_crop_earthstat) %>%
+  summarize(count = n(), sum = sum(`applied_mass_[1000kg/yr]`))
+```
+
+
+#dataset for imputation of bbch and application method
+```{r}
+bbch_country <- input_bayer_2018_bbch %>%
+  mutate(bbch_YN = case_when(name_cropstage == "9999-UNDEFINED" ~ "NO",
+                                 TRUE ~ "YES")) %>%
+  mutate(application_YN = case_when(name_appagrobase == "-" ~ "NO",
+                                    TRUE ~ "YES"))
+
+bbch_country <- bbch_country %>%
+  select(id_bayer, id_scenariobayer, name_country, name_region, name_crop_bayer, name_crop_earthstat, name_crop_FAO, name_cropgroup.x, name_cropgroup.y, casrn_chemical, name_ai, name_cropstage,code_bbch_bayer,  `treated_area_[1000ha/yr]`, name_indication, `applied_mass_[1000kg/yr]`,  Product, Distributor, name_app, name_appagrobase, name_refapp, bbch_YN, application_YN) 
+
+bbch_country <- bbch_country %>%
+  left_join(assn_cropstage_bbch, by = c("name_cropstage" = "name_cropstage"))
+
+bbch_country <- bbch_country %>%
+  mutate(bbch_aplication_YN = case_when(bbch_YN == "YES" & application_YN == "YES" ~ "YES",
+                                        TRUE ~ "NO"))
+
+bbch_countrys <- bbch_country %>%
+  left_join(chemclass_1, by = c("casrn_chemical" = "casrn_chemical")) #471741
+
+bbch_countrys_n <- bbch_countrys %>%
+  filter(is.na(class1))
+bbch_countrys %>%
+  group_by(bbch_YN) %>%
+  summarize(n = n())
+
+#bbch_countrys <- bbch_countrys %>%
+  #left_join(assn_cropstage_bbch, by = c("name_cropstage" = "name_cropstage")) 
+
+#n_distinct(bbch_countrys_n$casrn_chemical)
+
+#bbch_countrys_n <- bbch_countrys_n %>%
+  #group_by(casrn_chemical, name_ai.x) %>%
+  #summarize(n())
+```
+
+# dataset for bbch imputation
+```{r}
+bbch_imputation <- bbch_countrys %>%
+  filter(bbch_YN == "YES") %>%
+  group_by(name_country, name_crop_earthstat, name_cropgroup.y, name_ai.x, casrn_chemical, class1,name_indication, bbch_original) %>%
+  summarize(count = n(), sum = sum(`applied_mass_[1000kg/yr]`))
+
+bbch_imputation_n <- bbch_countrys %>%
+  filter(bbch_YN == "NO") %>%
+  group_by(name_country, name_crop_earthstat, name_cropgroup.y, name_ai.x, casrn_chemical, class1,name_indication) %>%
+  summarize(count = n(), sum = sum(`applied_mass_[1000kg/yr]`))
+```
+
+# dataset for application method imputation
+```{r}
+application_imputation <- bbch_countrys %>%
+  filter(application_YN == "YES") %>%
+  group_by(name_country, name_crop_earthstat, name_cropgroup.y, name_ai.x, casrn_chemical, class1,name_indication, name_refapp) %>%
+  summarize(count = n(), sum = sum(`applied_mass_[1000kg/yr]`))
+
+application_imputation_n <- bbch_countrys %>%
+  filter(application_YN == "NO") %>%
+  group_by(name_country, name_crop_earthstat, name_cropgroup.y, name_ai.x, casrn_chemical, class1,name_indication) %>%
+  summarize(count = n(), sum = sum(`applied_mass_[1000kg/yr]`))
+```
+
+
+# dataset for bbch & application method imputation
+```{r}
+bbch_application_imputation <- bbch_countrys %>%
+  filter(bbch_aplication_YN == "YES") %>%
+  group_by(name_country, name_crop_earthstat, name_cropgroup.y, name_ai.x, casrn_chemical, class1,name_indication, bbch_group, name_refapp) %>%
+  summarize(count = n(), sum = sum(`applied_mass_[1000kg/yr]`))
+
+bbch_application_imputation_n <- bbch_countrys %>%
+  filter(bbch_aplication_YN == "NO") %>%
+  group_by(name_country, name_crop_earthstat, name_cropgroup.y, name_ai.x, casrn_chemical, class1,name_indication) %>%
+  summarize(count = n(), sum = sum(`applied_mass_[1000kg/yr]`))
+```
+
+```{r}
+write.csv(bbch_imputation, "bbch_imputation.csv")
+write.csv(bbch_imputation_n, "bbch_imputation_n.csv")
+write.csv(application_imputation, "application_imputation.csv")
+write.csv(application_imputation_n, "application_imputation_n.csv")
+write.csv(bbch_application_imputation, "bbch__application_imputation.csv")
+write.csv(bbch_application_imputation_n, "bbch__application_imputation_n.csv")
+
+write.csv(application_n1, "application_n1.csv")
+write.csv(application_n2, "application_n2.csv")
+write.csv(application_n3, "application_n3.csv")
+write.csv(application_n4, "application_n4.csv")
+write.csv(application_n5, "application_n5.csv")
+```
+```{r}
+unique(bbch$name_cropstage)
+```
+
+```{r}
+join_clean <- read.csv("C:/me/map/cropmap/join_clean.csv")
+join_short_uni <- read.csv("C:/me/map/cropmap/join_short_uni.csv")
+```
+
+```{r}
+join.df_clean_m = melt(join_clean, id.vars = c("x", "y","layer_climate", "HDI_2015", "GDP_2015", "landevap_2017", "gpw_2015", "tmin_all_mean", "tmax_all_mean", "precip_all_mean", "ocs", "soc_15_proj", "soc_5_proj"),
+                measure.vars = c("whea_a", "rice_a", "maiz_a", "barl_a", "pmil_a", "smil_a", "sorg_a", "ocer_a", "pota_a", "swpo_a", "yams_a", "cass_a", "orts_a", "bean_a", "chic_a", "cowp_a", "pige_a", "lent_a", "opul_a", "soyb_a", "grou_a", "cnut_a", "oilp_a", "sunf_a", "rape_a", "sesa_a", "ooil_a", "sugc_a", "sugb_a", "cott_a", "ofib_a", "acof_a", "rcof_a", "coco_a", "teas_a", "bana_a", "plnt_a", "trof_a",  "temf_a", "vege_a", "rest_a"))
+
+#clean rows with crop ha = 0, no this crop growing
+join.df_clean_m <- join.df_clean_m %>%
+  filter(value != 0) %>%
+  mutate(x1 = as.numeric(format(round(x, 3), nsmall = 3)), y1 = as.numeric(format(round(y, 3), nsmall = 3)))
+
+spam2010_cntr <- spam2010 %>%
+  mutate(x1 = as.numeric(format(round(x, 3), nsmall = 3)), y1 = as.numeric(format(round(y, 3), nsmall = 3))) %>%
+  select(x1, y1, name_cntr)
+
+join.df_clean_m <- join.df_clean_m %>%
+  left_join(spam2010_cntr, by = c("x1", "y1"))
+
+join_cntr_uni <- join.df_clean_m %>%
+  select(layer_climate, HDI_2015, GDP_2015, landevap_2017, gpw_2015, tmin_all_mean, tmax_all_mean, precip_all_mean, ocs, soc_15_proj, soc_5_proj, variable, name_cntr)
+join_cntr_uni <- distinct(join_cntr_uni)
+summary(join_cntr_uni)
+join_cntr_uni_combi <- join_cntr_uni %>%
+  group_by(name_cntr, variable, layer_climate) %>%
+  summarize(HDI_2015 = mean(HDI_2015, na.rm = TRUE), GDP_2015 = mean(GDP_2015, na.rm = TRUE), landevap_2017 = mean(landevap_2017, na.rm = TRUE), gpw_2015 = mean(gpw_2015, na.rm = TRUE), tmin_all_mean = mean(tmin_all_mean, na.rm = TRUE), tmax_all_mean = mean(tmax_all_mean, na.rm = TRUE), precip_all_mean = mean(precip_all_mean, na.rm = TRUE), ocs = mean(ocs, na.rm = TRUE), soc_15_proj = mean(soc_15_proj, na.rm = TRUE), soc_5_proj = mean(soc_5_proj, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(HDI_2015 = as.numeric(format(round(HDI_2015, 2), nsmall = 2)), GDP_2015 = as.numeric(format(round(GDP_2015, 2))), landevap_2017 = as.numeric(format(round(landevap_2017, 2), nsmall = 2)), gpw_2015 = as.numeric(format(round(gpw_2015, 2), nsmall = 2)), tmin_all_mean = as.numeric(format(round(tmin_all_mean, 2), nsmall = 2)), tmax_all_mean = as.numeric(format(round(tmax_all_mean, 2), nsmall = 2)), precip_all_mean = as.numeric(format(round(precip_all_mean, 2), nsmall = 2)), ocs = as.numeric(format(round(ocs, 2), nsmall = 2)), soc_15_proj = as.numeric(format(round(soc_15_proj, 2), nsmall = 2)), soc_5_proj = as.numeric(format(round(soc_5_proj, 2), nsmall = 2))) %>%
+  select(name_cntr, variable, layer_climate, HDI_2015, GDP_2015, landevap_2017, gpw_2015, tmin_all_mean, tmax_all_mean, precip_all_mean, ocs, soc_15_proj, soc_5_proj)
+```
+```{r}
+join_cntr_uni_combi <- join_cntr_uni_combi %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea, Republic of",
+                                  name_cntr == "Iran  (islamic Republic Of)" ~ "Iran, Islamic Republic of",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~ "United States",
+                                  TRUE ~ name_cntr)) 
+join_cntr_uni_combi <- join_cntr_uni_combi %>%
+  mutate(name_crop = str_remove(variable, "_a$")) %>%
+  filter(!is.na(name_country))
+```
+
+#imputation for both bbch and application
+```{r}
+crop <- read_excel("C:/me/Database/harmonization/harmonization_crop.xlsx", sheet = 1)
+crop_spam <- read_excel("C:/me/Database/harmonization/Crop_Data.xlsx", sheet = 2)
+spam_id <- read_excel("C:/me/Database/harmonization/Crop_Data.xlsx", sheet = 3)
+
+crop_id <- crop_spam %>%
+  left_join(spam_id, by = c("id_spam" = "ID")) %>%
+  select(`CROPNAME`, `Short Name`)
+
+bbch_application_imputation <- bbch_application_imputation %>%
+  left_join(crop_id, by = c("name_crop_earthstat" = "CROPNAME"))
+bbch_application_n_imputation <- bbch_application_imputation_n %>%
+  left_join(crop_id, by = c("name_crop_earthstat" = "CROPNAME"))
+
+unique(join_cntr_uni_combi$name_country)
+
+bbch_application_imputation_combi <- bbch_application_imputation %>%
+  left_join(join_cntr_uni_combi, by = c("name_country" = "name_country", "Short Name" = "name_crop")) %>%
+  select(-`Short Name`, -name_cntr, -variable, -count, -sum) %>%
+  filter(!is.na(layer_climate)) # no fodder or forage in cropmap
+
+bbch_application_n_imputation_combi <- bbch_application_n_imputation %>%
+  left_join(join_cntr_uni_combi, by = c("name_country" = "name_country", "Short Name" = "name_crop")) %>%
+  select(-`Short Name`, -name_cntr, -variable, -count, -sum) %>%
+  filter(name_country != "Algeria") %>%
+  filter(!is.na(layer_climate))
+```
+
+
+#imputation for bbch
+```{r}
+crop <- read_excel("C:/me/Database/harmonization/harmonization_crop.xlsx", sheet = 1)
+crop_spam <- read_excel("C:/me/Database/harmonization/Crop_Data.xlsx", sheet = 2)
+spam_id <- read_excel("C:/me/Database/harmonization/Crop_Data.xlsx", sheet = 3)
+
+crop_id <- crop_spam %>%
+  left_join(spam_id, by = c("id_spam" = "ID")) %>%
+  select(`CROPNAME`, `Short Name`)
+
+bbch_imputation <- bbch_imputation %>%
+  left_join(crop_id, by = c("name_crop_earthstat" = "CROPNAME"))
+bbch_n_imputation <- bbch_imputation_n %>%
+  left_join(crop_id, by = c("name_crop_earthstat" = "CROPNAME"))
+
+#unique(join_cntr_uni_combi$name_country)
+
+bbch_imputation_combi <- bbch_imputation %>%
+  left_join(join_cntr_uni_combi, by = c("name_country" = "name_country", "Short Name" = "name_crop")) %>%
+  select(-`Short Name`, -name_cntr, -variable, -count, -sum) %>%
+  filter(!is.na(layer_climate)) # no fodder or forage in cropmap
+
+bbch_n_imputation_combi <- bbch_n_imputation %>%
+  left_join(join_cntr_uni_combi, by = c("name_country" = "name_country", "Short Name" = "name_crop")) %>%
+  select(-`Short Name`, -name_cntr, -variable, -count, -sum) %>%
+  filter(name_country != "Algeria") %>%
+  filter(!is.na(layer_climate))
+```
+
+#imputation for application
+```{r}
+crop <- read_excel("C:/me/Database/harmonization/harmonization_crop.xlsx", sheet = 1)
+crop_spam <- read_excel("C:/me/Database/harmonization/Crop_Data.xlsx", sheet = 2)
+spam_id <- read_excel("C:/me/Database/harmonization/Crop_Data.xlsx", sheet = 3)
+
+crop_id <- crop_spam %>%
+  left_join(spam_id, by = c("id_spam" = "ID")) %>%
+  select(`CROPNAME`, `Short Name`)
+
+application_imputation <- application_imputation %>%
+  left_join(crop_id, by = c("name_crop_earthstat" = "CROPNAME"))
+application_n_imputation <- application_imputation_n %>%
+  left_join(crop_id, by = c("name_crop_earthstat" = "CROPNAME"))
+
+#unique(join_cntr_uni_combi$name_country)
+
+application_imputation_combi <- application_imputation %>%
+  left_join(join_cntr_uni_combi, by = c("name_country" = "name_country", "Short Name" = "name_crop")) %>%
+  select(-`Short Name`, -name_cntr, -variable, -count, -sum) %>%
+  filter(!is.na(layer_climate)) # no fodder or forage in cropmap
+
+application_n_imputation_combi <- application_n_imputation %>%
+  left_join(join_cntr_uni_combi, by = c("name_country" = "name_country", "Short Name" = "name_crop")) %>%
+  select(-`Short Name`, -name_cntr, -variable, -count, -sum) %>%
+  filter(name_country != "Algeria") %>%
+  filter(!is.na(layer_climate))
+
+unique(bbch_imputation_combi$bbch_original)
+```
+
+
+```{r}
+write.csv(bbch_imputation_combi, "bbchoriginal_input.csv")
+write.csv(bbch_n_imputation_combi, "bbchoriginal_impute.csv")
+write.csv(application_imputation_combi, "application_input.csv")
+write.csv(application_n_imputation_combi, "application_impute.csv")
+```
+
+
+
+```{r}
+write.csv(bbch_application_imputation_combi, "bbch_application_input.csv")
+write.csv(bbch_application_n_imputation_combi, "bbch_application_impute.csv")
+```
+

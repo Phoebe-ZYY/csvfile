@@ -1,0 +1,772 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(purrr)
+library(ggthemes)
+library(dplyr)
+library(ggplot2)
+```
+
+
+```{r}
+files <- list.files('C:/me/data gaps/20220824xgboost/', 
+                        pattern = ".csv$", recursive = TRUE, full.names = TRUE)
+    
+chem_full_xgb <- read_csv(files) %>% bind_rows()
+```
+
+
+```{r}
+chem.list <- unique(chem_full_xgb$casrn_chemical)
+chem <- chem.list[1]
+exist.dat_country <- exist.dat %>%
+  left_join(join_short_uni, by = c(c("score", "name_crop_earthstat" = "variable", "layer_climate"))) %>%
+  filter(!is.na(name_country))
+  group_by(name_country) %>%
+  summarize(count = n_distinct(casrn_chemical))
+
+exist.dat.chem <- exist.dat %>%
+  #filter(casrn_chemical == chem) %>%
+  select(name_crop_earthstat, name_region.y, name_group_yy, HDI, landevap, layer_climate, climate_main, climate_sub, score, wd, casrn_chemical) %>%
+  mutate(group = "ori")
+chem_full_xgb_pred <- chem_full_xgb %>%
+  #filter(casrn_chemical == chem) %>%
+  mutate(wd = 10^pred.xgb) %>%
+  select(name_crop_earthstat, name_region.y, name_group_yy, HDI, landevap, layer_climate, climate_main, climate_sub, score, wd, casrn_chemical) %>%
+  mutate(group = "pred")
+chem_dose <- rbind(exist.dat.chem, chem_full_xgb_pred)
+for(i in 1:57){
+  chem_dose %>%
+  filter(casrn_chemical %in% chem.list[(5*i-4):(5*i)]) %>%
+  filter(!is.na(name_region.y)) %>%  #check region NA scenarios
+  ggplot(aes(x = name_crop_earthstat, y = wd)) +
+  geom_boxplot(size = 1,
+               outlier.shape = NA,
+               #outlier.color = "black",
+               #outlier.size = 1,
+               aes(fill = group)) +
+  geom_jitter(alpha = 0.5, width = 0.2, aes(color = name_region.y), size = 1) +
+  theme_minimal() +
+  facet_wrap(~ casrn_chemical, scales = "free_x", nrow = 1) +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired")+
+  coord_flip()
+ggsave(paste0("20220823chem_dose_pred_ori", i, ".jpeg"), width = 40, height = 20, units = "cm")
+}
+chem_dose %>%
+  filter(casrn_chemical %in% chem.list[5]) %>%
+  #filter(casrn_chemical == "1071-83-6") %>%
+  filter(!is.na(name_region.y)) %>%  #check region NA scenarios
+  ggplot(aes(x = name_crop_earthstat, y = wd)) +
+  geom_boxplot(size = 1,
+               outlier.shape = NA,
+               #outlier.color = "black",
+               #outlier.size = 1,
+               aes(fill = group)) +
+  geom_jitter(alpha = 0.5, width = 0.2, aes(color = name_region.y), size = 1) +
+  theme_minimal() +
+  facet_wrap(~ casrn_chemical, scales = "free_x", nrow = 1) +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired")+
+  coord_flip()
+ggsave("20220818chem_dose_pred_ori_101007-96-1.jpeg", width = 40, height = 20, units = "cm")
+```
+
+```{r}
+write.csv(join_short_uni_ratio_r, "20220830join_short_uni_ratio_r.csv")
+join_short_uni_ratio_r <- read.csv("20220830join_short_uni_ratio_r.csv")
+join_short_uni_ratio_r <- join_short_uni_ratio %>%
+  #mutate(score = round(as.numeric(score), 13)) %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea (the Republic of)",
+                                  name_cntr == "Iran, Islamic Republic of" ~ "Iran (Islamic Republic of)",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, the United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~"United States of America",
+                                  name_cntr == "Republic Of Moldova" ~ "Moldova (the Republic of)",
+                                  TRUE ~ name_cntr)) 
+chem_dose_r <- chem_dose %>%
+  mutate(score = round(as.numeric(score),13))
+write.csv(chem_dose, "20220908chem_dose.csv")
+chem_dose <- read.csv("20220908chem_dose.csv")
+write.csv(join_short_uni_ratio_r, "20220908join_short_uni_ratio_r.csv")
+join_short_uni_ratio_r <- read.csv("20220908join_short_uni_ratio_r.csv")
+country_chemlist_other <- chem_dose %>%
+  left_join(join_short_uni_ratio_r, by = c("score", "name_crop_earthstat" = "variable"))
+
+#check scenarios cannot find country
+country_chemlist_other_na <- country_chemlist_other %>%
+  filter(is.na(layer_climate.x))
+
+#check country pesticide count
+country_chemlist_other_count <- country_chemlist_other %>%
+  group_by(name_country, group) %>%
+  summarize(predictgroupcount = n_distinct(group), chemicalcount = n_distinct(casrn_chemical), predict = list(unique(group))) %>%
+  left_join(no.country.continent, by = c("name_country" = "name_country"))
+country_chemlist_other_count %>%
+  group_by(name_country) %>%
+  summarize(duplicate = n()) %>%
+  filter(duplicate > 1)
+
+country_chemlist_other_count %>%
+  filter(!is.na(name_country)) %>%
+  filter(name_country != "Nigeria") %>%
+  filter(!is.na(name_region)) %>%
+  ggplot(aes(x = name_country, y = chemicalcount)) +
+  geom_bar(aes(fill = group), stat='identity') +
+  facet_wrap(~name_region, scales = "free_x") +
+  scale_x_discrete(guide = guide_axis(angle = 90))
+ggsave("20220909country_chemlist_count.jpeg", width = 12, height = 8)
+
+country_chemlist_other_countcrop <- country_chemlist_other %>%
+  group_by(name_country, group, name_group_yy) %>%
+  summarize(predictgroupcount = n_distinct(group), chemicalcount = n_distinct(casrn_chemical), predict = list(unique(group))) %>%
+  left_join(no.country.continent, by = c("name_country" = "name_country"))
+
+country_chemlist_other_countcrop %>%
+  filter(!is.na(name_country)) %>%
+  filter(name_country != "Nigeria") %>%
+  filter(!is.na(name_region)) %>%
+  filter(name_region == "South America") %>%
+  ggplot(aes(x = name_country, y = chemicalcount)) +
+  geom_bar(aes(fill = group), stat='identity') +
+  facet_wrap(~name_group_yy) +
+  scale_x_discrete(guide = guide_axis(angle = 90))
+ggsave("20220909country_chemlist_countsouthamerica.jpeg", width = 60, height = 30, units = "cm")
+
+#check countries predicted nothing
+country_chemlist_no <- no.country.continent %>%
+  filter(!name_country%in%country_chemlist_other_count$name_country)
+
+croparea_country <- join_short_country_uni_ratio %>%
+  group_by(name_cntr) %>%
+  summarize(sumcroparea = sum(cropsumarea)) %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea (the Republic of)",
+                                  name_cntr == "Iran, Islamic Republic of" ~ "Iran (Islamic Republic of)",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, the United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~"United States of America",
+                                  name_cntr == "Republic Of Moldova" ~ "Moldova (the Republic of)",
+                                  TRUE ~ name_cntr)) %>%
+  left_join(no.country.continent, by = c("name_country" = "name_country"))
+```
+
+
+```{r}
+input_appbbch_atrazine <- input_appbbch %>%
+  filter(casrn_chemical == "1071-83-6") %>%
+  group_by(name_country, name_crop_earthstat, bbch_specific) %>%
+  summarize(mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(ratiomaxmin = maxdose/mindose)
+
+input_appbbch_us <- input_cas %>%
+  group_by(name_country) %>%
+  summarize(count = n_distinct(casrn_chemical))
+```
+
+
+```{r}
+input_appbbch_bbch_yes %>%
+  group_by(bbch_specific) %>%
+  summarize(massbbchgroup = sum(applied_mass_kkg), countbbchgroup = n()) %>%
+  ggplot(aes(x = bbch_specific, y = massbbchgroup)) +
+  geom_col()
+```
+#input with application method bbch seed
+```{r}
+#from multiple parameter determine seed/soil/crop
+input_appbbch_exist <- input_appbbch %>%
+  filter(bbch_YN == "YES") %>%
+  filter(application_YN == "YES") %>%
+  mutate(treatmentori = case_when(name_stagegroup == "00 SEED-DRESSING" ~ "seed",
+                                  name_stagegroup == "0 SOIL" ~ "soil",
+                                  #name_refapp == "Seed treatment" ~ "seed",
+                                  name_indication == "SEED-DRESSING" ~ "seed",
+                                  #name_refapp == "Soil incorporation" ~ "soil",
+                                  name_cropstage == "0000-SEED-DRESSING" ~ "seed",
+                                  TRUE ~ "crop"))
+
+input_appbbch_exist %>%
+  group_by(name_activeindication, treatmentori) %>%
+  summarize(count = n(), summass = sum(applied_mass_kkg)) %>%
+  ggplot(., aes(x = name_activeindication, y = treatmentori, fill = log10(summass))) +
+  geom_tile() +
+  scale_fill_viridis(discrete=FALSE, direction = -1)
+#from individual indicator determine seed/soil/crop, compared with reference application method
+input_appbbch_exist <- input_appbbch %>%
+  filter(bbch_YN == "YES") %>%
+  filter(application_YN == "YES") #%>%
+  filter(name_indication == "SEED-DRESSING")
+  
+input_appbbch_exist %>%
+  group_by(name_activeindication, name_refapp) %>%
+  summarize(count = n(), summass = sum(applied_mass_kkg)) %>%
+  ggplot(., aes(x = name_activeindication, y = name_refapp, fill = log10(summass))) +
+  geom_tile() +
+  scale_fill_viridis(discrete=FALSE, direction = -1)
+
+#input seed with indication
+```
+
+#input with indication-active
+```{r}
+indication_active <- input_appbbch %>%
+  group_by(casrn_chemical, name_ai) %>%
+  summarize(active_indication =  list(unique(name_activeindication)), activeindicationcount = n_distinct(name_activeindication),indicationcount = n_distinct(name_indication))
+
+table
+casrncheck <- input_appbbch %>%
+  group_by(name_ai, casrn_chemical, name_ai_bayer, casrn_chemical_bayer) %>%
+  summarize(count = n()) %>%
+  mutate(casmatch = case_when(casrn_chemical_bayer == casrn_chemical ~ "match",
+                              TRUE ~ "unmatch")) %>%
+  filter(casmatch == "unmatch")
+
+indication_active_group <- input_appbbch %>%
+  group_by(name_activeindication) %>%
+  summarize(countchem = n_distinct(casrn_chemical))
+indication_group <- input_appbbch %>%
+  group_by(name_indication) %>%
+  summarize(countchem = n_distinct(casrn_chemical))
+indication_activeor_group <- input_appbbch %>%
+  group_by(name_activeindication, name_indication) %>%
+  summarize(countchem = n_distinct(casrn_chemical))
+
+indication_activeor_group %>%
+  ggplot(., aes(x = name_activeindication, y = name_indication, fill = countchem)) +
+  geom_tile() +
+  scale_fill_viridis(discrete=FALSE, direction = -1)
+```
+#herbicides application methods
+```{r}
+input_appbbch_herbi <- input_appbbch %>%
+  #filter(name_activeindication == "HERBICIDES-ACTIV") %>%
+  group_by(name_app, name_refapp, name_activeindication) %>%
+  summarize(count = n())
+```
+
+#seed dressing related application methods
+```{r}
+input_appbbch_seeddressing <- input_appbbch %>%
+  filter(name_stagegroup == "00 SEED-DRESSING"  | name_indication == "SEED-DRESSING" |
+                                  name_cropstage == "0000-SEED-DRESSING") %>%
+  group_by(name_app, name_refapp, name_stagegroup, name_indication, name_cropstage, name_activeindication) %>%
+  summarize(count = n())
+input_appbbch_seeddressingall <- input_appbbch %>%
+  group_by(name_app, name_refapp, name_stagegroup, name_indication, name_cropstage, name_activeindication) %>%
+  summarize(count = n())
+```
+
+
+```{r}
+input_appbbch_combination <- input_appbbch %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, application_YN, bbch_YN) %>%
+  summarize(count = n())
+```
+
+```{r}
+input_crop <- input_caschem %>%
+  group_by(name_crop_earthstat) %>%
+  summarize(summass = sum(applied_mass_kkg))
+```
+
+
+#calibration ccc level xgboost dose prediction, without separation of treatment
+```{r}
+files <- list.files('C:/me/data gaps/20220912xgboost_calibration/', 
+                        pattern = ".csv$", recursive = TRUE, full.names = TRUE)
+    
+chem_pred_xgb <- read_csv(files) %>% bind_rows()
+```
+
+#chemical existence for rest countries
+```{r}
+no.dat.cpp.exist.full.country <- no.dat.cpp.pred.exist.full %>%
+  left_join(join_short_uni_ratio_r, by = c("score", "name_crop_earthstat" = "variable"))
+no.dat.cpp.country <- no.dat.cpp.exist.full.country %>%
+  group_by(name_country, name_region.y) %>%
+  summarize(chemcount = n_distinct(casrn_chemical))
+```
+
+#result with first two steps predict existence and doses, ccc level xgboost dose prediction, without separation of treatment
+```{r}
+files <- list.files('C:/me/data gaps/20220929xgboost_usa/', 
+                        pattern = ".csv$", recursive = TRUE, full.names = TRUE)
+    
+chem_full_xgb <- read_csv(files) %>% bind_rows()
+
+chem_full_xgb_a <- chem_full_xgb %>%
+  left_join(join_short_uni, by = c("HDI", "landevap", "score", "name_crop_earthstat" = "variable"))
+
+n_distinct(chem_full_xgb$casrn_chemical)
+
+chem_full_xgb_ccc <- chem_full_xgb_a %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  summarize(count = n())
+
+chem_dose_atrazine <- chem_full_xgb_a %>%
+  filter(casrn_chemical == "1912-24-9") %>%
+  mutate(dose = 10^(pred.xgb)) %>%
+  group_by(name_country, name_crop_earthstat) %>%
+  summarize(dose_avg = mean(dose, na.rm = TRUE))
+
+chem_full_xgb_luxembourrg <- chem_full_xgb_a %>%
+  filter(name_country == "Luxembourg")
+
+```
+
+
+```{r}
+chem.list <- unique(chem_full_xgb$casrn_chemical)
+chem <- chem.list[1]
+exist.dat_country <- exist.dat %>%
+  left_join(join_short_uni_ratio, by = c(c("score", "name_crop_earthstat" = "variable", "layer_climate"))) %>%
+  filter(!is.na(name_cntr)) %>%
+  mutate(mass = 10^logwd * cropsumarea) %>%
+  group_by(name_cntr, casrn_chemical, name_crop_earthstat) %>%
+  summarize(summass = sum(mass))
+
+
+input_caschem_country <- input_caschem %>%
+  group_by(name_country, casrn_chemical,name_crop_earthstat) %>%
+  summarize(summassori = sum(applied_mass_kkg), sumarea = sum(treated_area_kha))
+
+exist.dat.chem <- exist.dat %>%
+  #filter(casrn_chemical == chem) %>%
+  select(name_crop_earthstat, name_region.y, name_group_yy, HDI, landevap, layer_climate, climate_main, climate_sub, score, logwd, casrn_chemical) %>%
+  mutate(group = "ori")
+chem_full_xgb_pred <- chem_full_xgb %>%
+  #filter(casrn_chemical == chem) %>%
+  mutate(logwd = pred.xgb) %>%
+  select(name_crop_earthstat, name_region.y, name_group_yy, HDI, landevap, layer_climate, climate_main, climate_sub, score, logwd, casrn_chemical) %>%
+  mutate(group = "pred")
+chem_dose <- rbind(exist.dat.chem, chem_full_xgb_pred)
+for(i in 1:57){
+  chem_dose %>%
+  filter(casrn_chemical %in% chem.list[(5*i-4):(5*i)]) %>%
+  filter(!is.na(name_region.y)) %>%  #check region NA scenarios
+  ggplot(aes(x = name_crop_earthstat, y = wd)) +
+  geom_boxplot(size = 1,
+               outlier.shape = NA,
+               #outlier.color = "black",
+               #outlier.size = 1,
+               aes(fill = group)) +
+  geom_jitter(alpha = 0.5, width = 0.2, aes(color = name_region.y), size = 1) +
+  theme_minimal() +
+  facet_wrap(~ casrn_chemical, scales = "free_x", nrow = 1) +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired")+
+  coord_flip()
+ggsave(paste0("20220823chem_dose_pred_ori", i, ".jpeg"), width = 40, height = 20, units = "cm")
+}
+chem_dose %>%
+  filter(casrn_chemical %in% chem.list[5]) %>%
+  #filter(casrn_chemical == "1071-83-6") %>%
+  filter(!is.na(name_region.y)) %>%  #check region NA scenarios
+  ggplot(aes(x = name_crop_earthstat, y = wd)) +
+  geom_boxplot(size = 1,
+               outlier.shape = NA,
+               #outlier.color = "black",
+               #outlier.size = 1,
+               aes(fill = group)) +
+  geom_jitter(alpha = 0.5, width = 0.2, aes(color = name_region.y), size = 1) +
+  theme_minimal() +
+  facet_wrap(~ casrn_chemical, scales = "free_x", nrow = 1) +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired")+
+  coord_flip()
+ggsave("20220818chem_dose_pred_ori_101007-96-1.jpeg", width = 40, height = 20, units = "cm")
+```
+
+```{r}
+write.csv(join_short_uni_ratio_r, "20220830join_short_uni_ratio_r.csv")
+join_short_uni_ratio_r <- read.csv("20220830join_short_uni_ratio_r.csv")
+join_short_uni_ratio_r <- join_short_uni_ratio_r %>%
+  #mutate(score = round(as.numeric(score), 13)) %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea (the Republic of)",
+                                  name_cntr == "Iran, (islamic Republic of)" ~ "Iran (Islamic Republic of)",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, the United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~"United States of America",
+                                  name_cntr == "Republic Of Moldova" ~ "Moldova (the Republic of)",
+                                  TRUE ~ name_cntr)) 
+chem_dose_r <- chem_dose %>%
+  mutate(score = round(as.numeric(score),13))
+write.csv(chem_dose, "20220920chem_dose.csv")
+chem_dose <- read.csv("20220920chem_dose.csv")
+write.csv(join_short_uni_ratio_r, "20220920join_short_uni_ratio_r.csv")
+join_short_uni_ratio_r <- read.csv("20220920join_short_uni_ratio_r.csv")
+country_chemlist_other <- chem_dose %>%
+  left_join(join_short_uni_ratio_r, by = c("score", "name_crop_earthstat" = "variable"))
+
+
+#check dose range
+country_pred_chemlist_95 <- country_chemlist_other %>%
+  filter(group == "pred") %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  filter(logwd < quantile(country_chemlist_other$logwd, 0.95))
+country_chemlist_other %>%
+  filter(group == "pred") %>%
+  ggplot(aes(x = name_crop_earthstat,y = 10^logwd)) +
+  geom_boxplot()+
+  theme_bw() +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                labels = trans_format("log10", math_format(10^.x)))
+#check scenarios cannot find country
+country_chemlist_other_na <- country_chemlist_other %>%
+  filter(is.na(layer_climate.x))
+
+#check country pesticide count
+country_chemlist_other_count <- country_chemlist_other %>%
+  group_by(name_country, group) %>%
+  summarize(predictgroupcount = n_distinct(group), chemicalcount = n_distinct(casrn_chemical), predict = list(unique(group))) %>%
+  left_join(no.country.continent, by = c("name_country" = "name_country"))
+country_chemlist_other_count %>%
+  group_by(name_country) %>%
+  summarize(duplicate = n()) %>%
+  filter(duplicate > 1)
+
+country_chemlist_other_count %>%
+  filter(!is.na(name_country)) %>%
+  filter(name_country != "Nigeria") %>%
+  filter(!is.na(name_region)) %>%
+  ggplot(aes(x = name_country, y = chemicalcount)) +
+  geom_bar(aes(fill = group), stat='identity') +
+  facet_wrap(~name_region, scales = "free_x") +
+  scale_x_discrete(guide = guide_axis(angle = 90))
+ggsave("20220920country_chemlist_count.jpeg", width = 12, height = 8)
+
+country_chemlist_other_countcrop <- country_chemlist_other %>%
+  group_by(name_country, group, name_group_yy) %>%
+  summarize(predictgroupcount = n_distinct(group), chemicalcount = n_distinct(casrn_chemical), predict = list(unique(group))) %>%
+  left_join(no.country.continent, by = c("name_country" = "name_country"))
+
+country_chemlist_other_countcrop %>%
+  filter(!is.na(name_country)) %>%
+  filter(name_country != "Nigeria") %>%
+  filter(!is.na(name_region)) %>%
+  filter(name_region == "Oceania") %>%
+  ggplot(aes(x = name_country, y = chemicalcount)) +
+  geom_bar(aes(fill = group), stat='identity') +
+  facet_wrap(~name_group_yy) +
+  scale_x_discrete(guide = guide_axis(angle = 90))
+ggsave("20220920country_chemlist_countnorthoceania.jpeg", width = 60, height = 30, units = "cm")
+
+#check countries predicted nothing
+country_chemlist_no <- no.country.continent %>%
+  filter(!name_country%in%country_chemlist_other_count$name_country)
+
+croparea_country <- join_short_country_uni_ratio %>%
+  group_by(name_cntr) %>%
+  summarize(sumcroparea = sum(cropsumarea)) %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea (the Republic of)",
+                                  name_cntr == "Iran, Islamic Republic of" ~ "Iran (Islamic Republic of)",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, the United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~"United States of America",
+                                  name_cntr == "Republic Of Moldova" ~ "Moldova (the Republic of)",
+                                  TRUE ~ name_cntr)) %>%
+  left_join(no.country.continent, by = c("name_country" = "name_country"))
+```
+
+```{r}
+no.dat.cpp.pred.exist.full0.05 <- read.csv("C:/me/data gaps/20221020no.dat.cpp.pred.exist.fullsig0.05.csv")
+no.dat.cpp0.05 <- no.dat.cpp.pred.exist.full0.05 %>%
+  left_join(join_short_uni, by = c("HDI", "landevap", "score", "name_crop_earthstat" = "variable"))
+
+n_distinct(no.dat.cpp0.05$casrn_chemical)
+
+no_cpp_ccc0.05 <- no.dat.cpp0.05 %>%
+  group_by(name_cntr, name_crop_earthstat, casrn_chemical) %>%
+  summarize(count = n())
+no_cpp_cc0.05 <- no.dat.cpp0.05 %>%
+  group_by(name_cntr, name_crop_earthstat) %>%
+  summarize(countchem = n_distinct(casrn_chemical))
+no_cpp_country0.05 <- no.dat.cpp0.05 %>%
+  group_by(name_cntr) %>%
+  summarize(count0.05 = n_distinct(casrn_chemical))
+no_cpp_cc0.05 %>%
+  left_join(no.country.continent, by = c("name_cntr" = "name_country")) %>%
+  #mutate(countchem = count) %>%
+  filter(!is.na(name_region)) %>%
+  ggplot(aes(x = countchem)) +
+  geom_histogram() +
+  facet_wrap(~name_region)
+
+no.dat.cpp.pred.exist.full0.1 <- read.csv("C:/me/data gaps/20221006no.dat.cpp.pred.exist.fullsig0.1.csv")
+no.dat.cpp0.1 <- no.dat.cpp.pred.exist.full0.1 %>%
+  left_join(join_short_uni, by = c("HDI", "landevap", "score", "name_crop_earthstat" = "variable"))
+
+n_distinct(no.dat.cpp0.1$casrn_chemical)
+
+no_cpp_ccc0.1 <- no.dat.cpp0.1 %>%
+  group_by(name_cntr, name_crop_earthstat, casrn_chemical) %>%
+  summarize(count = n())
+no_cpp_cc0.1 <- no.dat.cpp0.1 %>%
+  group_by(name_cntr, name_crop_earthstat) %>%
+  summarize(countchem = n_distinct(casrn_chemical))
+no_cpp_country0.1 <- no.dat.cpp0.1 %>%
+  group_by(name_cntr) %>%
+  summarize(count0.1 = n_distinct(casrn_chemical))
+no_cpp_cc0.1 %>%
+  ggplot(aes(x = countchem)) +
+  geom_histogram()
+
+
+no.dat.cpp.pred.exist.full0.15 <- read.csv("C:/me/data gaps/20221006no.dat.cpp.pred.exist.fullsig0.15.csv")
+no.dat.cpp0.15 <- no.dat.cpp.pred.exist.full0.15 %>%
+  left_join(join_short_uni, by = c("HDI", "landevap", "score", "name_crop_earthstat" = "variable"))
+
+n_distinct(no.dat.cpp0.15$casrn_chemical)
+
+no_cpp_ccc0.15 <- no.dat.cpp0.15 %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  summarize(count = n())
+
+no_cpp_country0.15 <- no.dat.cpp0.15 %>%
+  group_by(name_country) %>%
+  summarize(count0.15 = n_distinct(casrn_chemical))
+
+no.dat.cpp.pred.exist.full0.2 <- read.csv("C:/me/data gaps/20221006no.dat.cpp.pred.exist.fullsig0.2.csv")
+no.dat.cpp0.2 <- no.dat.cpp.pred.exist.full0.2 %>%
+  left_join(join_short_uni, by = c("HDI", "landevap", "score", "name_crop_earthstat" = "variable"))
+
+no.dat.cpp0.2_luxemborg <- no.dat.cpp0.2 %>%
+  filter(name_country == "Luxembourg") %>%
+  group_by(casrn_chemical) %>%
+  summarize(count = n())
+
+n_distinct(no.dat.cpp0.2$casrn_chemical)
+
+no_cpp_ccc0.2 <- no.dat.cpp0.2 %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  summarize(count = n())
+no_cpp_country0.2 <- no.dat.cpp0.2 %>%
+  group_by(name_country) %>%
+  summarize(count0.2 = n_distinct(casrn_chemical))
+no_cpp_country <- no_cpp_country0.2 %>%
+  left_join(no_cpp_country0.15, by = c("name_country")) %>%
+  left_join(no_cpp_country0.1, by = c("name_country")) %>%
+  left_join(no_cpp_country0.05, by = c("name_country"))
+write.csv(no_cpp_country, "20221006no_cpp_country.csv")
+exist_country <- exist.dat %>%
+  group_by(name_country, name_crop_earthstat) %>%
+  #group_by(name_country) %>%
+  summarize(count = n_distinct(casrn_chemical)) %>%
+  mutate(source = "ori")
+country_count <- no_cpp_country0.05 %>%
+  mutate(count = count0.05) %>%
+  select(name_cntr, count) %>%
+  mutate(name_country = name_cntr) %>%
+  select(name_country, count) %>%
+  mutate(source = "pred")
+country_count <- rbind(exist_country, country_count)
+country_Count <- country_count %>%
+  left_join(no.country.continent, by = c("name_country"))
+country_Count %>%
+  filter(!is.na(name_country)) %>%
+  ggplot(aes(x = name_country, y = count, fill = source)) +
+  geom_bar(stat='identity') +
+  facet_wrap(~name_region, scales = "free_x") +
+  scale_x_discrete(guide = guide_axis(angle = 90))
+ggsave("20221027sig0.05countrychemcount6.jpeg", width = 30, height = 20, units = "cm")
+
+nocountryprediction <- country_croparea %>%
+  filter(!name_country %in% country_count$name_country) %>%
+  group_by(name_country, sumcroparea) %>%
+  summarize(sum = sum(croparea))
+```
+
+
+```{r}
+#countries cannot be predicted
+country_noprediction <- no.dat %>%
+  group_by(name_country) %>%
+  summarize(countcrop = n_distinct(variable)) %>%
+  filter(!name_country %in% no_cpp_country0.05$name_cntr) %>%
+  left_join(country_croparea, by = c("name_country" ))
+```
+
+
+#Luxembourg
+```{r}
+#no.dat.cpp0.05 <- read.csv("C:/me/data gaps/20221004dat.out.cpp0.1.csv")
+no.dat.cpp0.05_luxemborg <- no.dat.cpp0.05 %>%
+  filter(name_country == "Luxembourg") %>%
+  #filter(!casrn_chemical %in% regu_luxembourg$`CAS number`) %>%
+  #filter(!casrn_chemical %in% pan_eu$`CAS No`) %>%
+  group_by(casrn_chemical) %>%
+  summarize(count = n())
+eurostat_luxembourg <- read_xlsx("C:/me/Database/harmonization/chemical_eurostat_luxembourg.xlsx")
+
+eurostat_luxembourg <- eurostat_luxembourg %>%
+  rowwise() %>%
+  mutate(sum = sum(`1516` , `1617` , `1718` , `1314` , `1415`, na.rm = TRUE)) %>%
+  filter(sum !=0) %>%
+  filter(!is.na(`1718`)) %>%
+  filter(!is.na(chemical_casrn))
+luxembourg_euro_pred <- eurostat_luxembourg %>%
+  full_join(no.dat.cpp0.05_luxemborg, by = c("chemical_casrn" = "casrn_chemical"))
+luxembourg_all <- luxembourg_euro_pred %>%
+  filter(!is.na(count) & ! is.na(code_eurostat)) %>%
+  mutate(indication = str_sub(code_eurostat, 1, 1))
+luxembourg_all %>%
+  ggplot(aes(x = indication)) +
+  geom_histogram(stat = "count")
+
+regulation <- read_xlsx("C:/me/map/regulations/PIC (version 1).xlsx")
+pan <- read_xlsx("C:/me/map/regulations/pan_bans.xlsx")
+pan_eu <- pan %>%
+  select(`CAS No`, EU) %>%
+  filter(!is.na(EU))
+regu_luxembourg <- regulation %>%
+  filter(Country == "Luxembourg")
+euro_luxembourg <- eurostat_luxembourg %>%
+  group_by(chemical_casrn, code_eurostat) %>%
+  summarize(count = n()) %>%
+  filter(!chemical_casrn %in% regu_luxembourg$`CAS number`) %>% 
+  #filter(chemical_casrn %in% chem.list) %>%
+  filter(!chemical_casrn %in% pan_eu$`CAS No`) %>%
+  mutate(indication = str_sub(code_eurostat, 1, 1))
+euro_luxembourg %>%
+  ggplot(aes(x = indication)) +
+  geom_histogram(stat = "count")
+unique(euro_luxembourg$code_eurostat)
+
+```
+
+#usa chem vs. usgs
+```{r}
+usgs_chem <- read_xlsx("C:/me/Database/harmonization/usgs_cas.xlsx")
+usa_chem <- input_caschem %>%
+  filter(name_country == "United States of America") %>%
+  group_by(casrn_chemical) %>%
+  summarize(count = n())
+usgs_chem <- usgs_chem %>% 
+  filter(!is.na(casrn_chemical))
+
+usa_chem_all <- usa_chem %>%
+  full_join(usgs_chem, by = c("casrn_chemical"), keep = TRUE) %>%
+  filter(!is.na(casrn_chemical.x)) %>%
+  filter(!is.na(casrn_chemical.y))
+```
+
+#Denmark chem vs. eurostat
+```{r}
+denmark_chem <- read_xlsx("C:/me/comparison/Denmark.xlsx")
+denmark_chem2017 <- denmark_chem %>%
+  filter(`2017` != "A") %>%
+  filter(`2017` != "B") %>%
+  filter(!is.na(`2017`)) %>%
+  filter(`2017` != "0,0")
+denmark_agro <- input_caschem %>%
+  filter(name_country == "Denmark") %>%
+  group_by(casrn_chemical) %>%
+  summarize(count = n())
+denmark_chemall <- denmark_chem2017 %>%
+  full_join(denmark_agro, by = c("CAS-nr." = "casrn_chemical"), keep = TRUE) %>%
+  filter(!is.na(casrn_chemical)) %>%
+  filter(!is.na(`CAS-nr.`))
+```
+
+
+#Czechia chem vs. national
+```{r}
+eurostat_code_cas <- read_xlsx("C:/me/comparison/eurostat_code_cas.xlsx")
+czechia_chem2017 <- read_xlsx("C:/me/comparison/Czechia_2017.xlsx", sheet = 2)
+czechia_chemcode <- read_xlsx("C:/me/comparison/Czechia_2017.xlsx", sheet = 1)
+czechia_chem2017 <- czechia_chem2017 %>%
+  left_join(czechia_chemcode, by = c("active" = "Column1")) %>%
+  filter(!is.na(Column2))
+unique(czechia_chem2017$Column3)
+czechia_chem2017_cas <- czechia_chem2017 %>%
+  left_join(eurostat_code_cas, by = c("Column3" = "C1")) %>%
+  select(active, total, Column3, C4)
+write.csv(czechia_chem2017_cas, "C:/me/comparison/czechia_chem2017_cas.csv")
+
+czechia_chem2017_cas <- read_xlsx("C:/me/comparison/czechia_chem2017_cas.xlsx", sheet = 1)
+czechia_chem2017_cas_regu <- czechia_chem2017_cas %>%
+  filter(!C4 %in% regu_luxembourg$`CAS number`) %>% 
+  #filter(chemical_casrn %in% chem.list) %>%
+  filter(!C4 %in% pan_eu$`CAS No`)
+unique(czechia_chem2017_cas$Column3)
+
+czechia_agro <- input_caschem %>%
+  filter(name_country == "Czech Republic") %>%
+  group_by(casrn_chemical) %>%
+  summarize(count = n()) %>%
+  filter(casrn_chemical %in% regu_luxembourg$`CAS number`) %>% 
+  #filter(chemical_casrn %in% chem.list) %>%
+  filter(casrn_chemical %in% pan_eu$`CAS No`)
+czechia_chemall <- czechia_chem2017_cas_regu %>%
+  full_join(czechia_agro, by = c("C4" = "casrn_chemical"), keep = TRUE) %>%
+  filter(!is.na(casrn_chemical)) %>%
+  filter(!is.na(C4))
+```
+
+#Togo
+```{r}
+no.dat.cpp0.05_Togo <- no.dat.cpp0.05 %>%
+  filter(name_country == "Togo") %>%
+  filter(name_crop_earthstat == "vegetablenes") %>%
+  group_by(casrn_chemical) %>%
+  summarize(count = n())
+exist.dat_ivory <- exist.dat %>%
+  filter(name_country == "Ivory Coast") %>%
+  filter(name_crop_earthstat == "vegetablenes") %>%
+  group_by(casrn_chemical) %>%
+  summarize(count = n())
+exist.dat_ghana <- exist.dat %>%
+  filter(name_country == "Ghana") %>%
+  filter(name_crop_earthstat == "vegetablenes") %>%
+  group_by(casrn_chemical) %>%
+  summarize(count = n())
+exist.dat_southafrica <- exist.dat %>%
+  filter(name_country == "South Africa") %>%
+  filter(name_crop_earthstat == "vegetablenes") %>%
+  group_by(casrn_chemical) %>%
+  summarize(count = n())
+
+
+togo_ivory_veg <- exist.dat_ivory %>%
+  full_join(no.dat.cpp0.05_Togo, by = c("casrn_chemical" = "casrn_chemical"), keep = TRUE) %>%
+  filter(!is.na(count.x)) %>%
+  filter(!is.na(count.y))
+togo_ghana_veg <- exist.dat_ghana %>%
+  full_join(no.dat.cpp0.05_Togo, by = c("casrn_chemical" = "casrn_chemical"), keep = TRUE) %>%
+  filter(!is.na(count.x)) %>%
+  filter(!is.na(count.y))
+togo_southafrica_veg <- exist.dat_southafrica %>%
+  full_join(no.dat.cpp0.05_Togo, by = c("casrn_chemical" = "casrn_chemical"), keep = TRUE) %>%
+  filter(!is.na(count.x)) %>%
+  filter(!is.na(count.y))
+ivory_ghana_veg <- exist.dat_ivory %>%
+  full_join(exist.dat_ghana, by = c("casrn_chemical" = "casrn_chemical"), keep = TRUE) %>%
+  filter(!is.na(count.x)) %>%
+  filter(!is.na(count.y))
+
+country_croparea_ratio <- country_croparea %>%
+  mutate(ratio = croparea/sumcroparea * 100)
+```
+
+```{r}
+input_caschem_vietnam <- input_caschem %>%
+  filter(name_country == "Viet Nam") %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, name_activeindication, name_ai) %>%
+  summarize(summass = sum(applied_mass_kkg))
+
+
+mass <- input_caschem %>%
+  group_by(name_country) %>%
+  summarize(mass = sum(applied_mass_kkg), area = sum(treated_area_kha))
+```
+

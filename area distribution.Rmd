@@ -1,0 +1,156 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+n count scenarios
+```{r}
+countryscenarios <- calculation_countryis %>%
+  filter(`treated_area_[1000ha/yr]` != 0 & `applied_mass_[1000kg/yr]` != 0) %>%
+  group_by(name_country) %>%
+  summarize(countproduct = n_distinct(Product))
+```
+
+```{r}
+write.csv(countryscenarios, "countryscenarios.csv")
+```
+
+
+```{r}
+library(maps)
+library(ggplot2)
+world_data <- ggplot2::map_data('world')
+world_data <- fortify(world_data)
+head(world_data)
+```
+
+
+```{r}
+def_countryname <- read_excel("def_countryname.xlsx", sheet = 1)
+```
+
+```{r}
+world_data["ISO"] <- def_countryname$`ISO  Code`[match(world_data$region, def_countryname$name_country)]
+world_datana <- world_data %>%
+  filter(is.na(ISO))
+
+
+world_data <- world_data 
+```
+
+countryscenarios
+```{r}
+countryscenarios <- countryscenarios %>%
+  mutate(name_map = tolower(name_country)) %>%
+  mutate(name_map = str_to_title(name_map)) %>%
+  mutate(name_map = case_when(name_map == "Costa-Rica" ~ "Costa Rica",
+                              name_map == "Czech Rep." ~ "Czech Republic",
+                              name_map == "Dominican-R." ~ "Dominican Republic",
+                              name_map == "Ivory-Coast" ~ "Ivory Coast",
+                              name_map == "Korea-South" ~ "South Korea",
+                              name_map == "Russian Fed." ~ "Russia",
+                              name_map == "Saudi-Arabia" ~ "Saudi Arabia",
+                              name_map == "Serbia Rep." ~ "Serbia",
+                              name_map == "South-Africa" ~ "South Africa",
+                              name_map == "Sri-Lanka" ~ "Sri Lanka",
+                              name_map == "U.kingdom(Uk)" ~ "UK",
+                              name_map == "Usa" ~ "USA",
+                              TRUE ~ name_map))
+```
+
+
+```{r}
+library(RColorBrewer)
+library(ggiraph)
+world_data['countproduct'] <- countryscenarios$`countproduct`[match(world_data$region, countryscenarios$name_map)]
+
+g <- ggplot() + 
+  geom_polygon_interactive(data = world_data, color = 'gray70', size = 0.1,
+                                    aes(x = long, y = lat, fill = countproduct, group = group, 
+                                        tooltip = sprintf("%s<br/>%s", region, countproduct))) + 
+    scale_fill_gradientn(colours = brewer.pal(9, "Blues"), na.value = 'white') + 
+    #scale_y_continuous(limits = c(-60, 90), breaks = c()) + 
+    scale_x_continuous(breaks = c()) + 
+    #labs(fill = , color = , title = NULL, x = NULL, y = NULL, caption = capt) + 
+    theme_bw() + theme(axis.text = element_text(size = 5),
+                       axis.title = element_text(size = 5),
+                       strip.text = element_text(size = 5),
+                       panel.grid.major = element_blank(), 
+                       panel.grid.minor = element_blank(),
+                       panel.background = element_blank(), 
+                       legend.position = "bottom",
+                       panel.border = element_blank(), 
+                       strip.background = element_rect(fill = 'white', colour = 'white')) +
+  
+
+#g
+girafe(ggob = g, options = list(
+  opts_sizing(width = .7),
+  opts_zoom(max = 5))
+)
+```
+
+```{r}
+country_norecords <- world_data %>%
+  filter(is.na(countproduct)) %>%
+  select(c(region)) %>%
+  distinct()
+write.xlsx(country_norecords, "country_norecords.xlsx", sheetName = "country_norecords")
+```
+
+```{r}
+countryscenarios2 <- input_bayer_2018_final %>%
+  filter(`treated_area_[1000ha/yr]` != 0 & `applied_mass_[1000kg/yr]` != 0) %>%
+  group_by(name_country) %>%
+  summarize(`applied_mass_[1000kg/yr]` = sum(`applied_mass_[1000kg/yr]`)) %>%
+  group_by(name_country) %>%
+  summarize(n_count = n())
+```
+
+```{r}
+countryscenarios2 <- countryscenarios2 %>%
+  #mutate(name_map = tolower(name_country)) %>%
+  #mutate(name_map = str_to_title(name_map)) %>%
+  mutate(name_map = case_when(
+                              name_country == "Korea, Republic of" ~ "South Korea",
+                              name_country == "Russian Federation" ~ "Russia",
+                              name_country == "Macedonia, the former Yugoslav Republic of" ~ "Macedonia",
+                              name_country == "Taiwan, Province of China" ~ "Taiwan",
+                              name_country == "Tanzania, United Republic of" ~ "Tanzania",
+                              name_country == "Viet Nam" ~ "Vietnam",
+                              name_country == "United Kingdom" ~ "UK",
+                              name_country == "United States" ~ "USA",
+                              TRUE ~ name_country))
+```
+
+```{r}
+library(RColorBrewer)
+library(ggiraph)
+world_data["n_count"] <- countryscenarios2$n_count[match(world_data$region, countryscenarios2$name_map)]
+
+g <- ggplot() + 
+  geom_polygon_interactive(data = world_data, color = 'gray70', size = 0.1,
+                                    aes(x = long, y = lat, fill = n_count, group = group, 
+                                        tooltip = sprintf("%s<br/>%s", region, n_count))) + 
+    scale_fill_gradientn(colours = brewer.pal(1, "Blues"), na.value = 'white') + 
+    #scale_y_continuous(limits = c(-60, 90), breaks = c()) + 
+    scale_x_continuous(breaks = c()) + 
+    #labs(fill = , color = , title = NULL, x = NULL, y = NULL, caption = capt) + 
+    theme_bw() + theme(axis.text = element_text(size = 10),
+                       axis.title = element_text(size = 10),
+                       strip.text = element_text(size = 20),
+                       legend.text = element_text(size = 5),
+                       panel.grid.major = element_blank(), 
+                       panel.grid.minor = element_blank(),
+                       panel.background = element_blank(), 
+                       legend.position = "bottom",
+                       panel.border = element_blank(), 
+                       strip.background = element_rect(fill = 'white', colour = 'white')) #+
+  
+
+#g
+girafe(ggob = g, options = list(
+  opts_sizing(width = .7),
+  opts_zoom(max = 5))
+)
+```

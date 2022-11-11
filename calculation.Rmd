@@ -1,0 +1,275 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = T, results = "hide")
+library(knitr)
+library(rlang)
+library(tidyverse)
+library(readxl)
+library(docxtools)
+library(data.table)
+library(dplyr)
+library(purrr)
+library(tidyr)
+library(lubridate) 
+library(ggplot2)
+library(scales)
+library(gridExtra)
+library(ggthemes)
+library(viridis)
+library(knitr)
+library(reshape2)
+library(ggQC)
+library(kableExtra)
+library(tibble)
+library(colorspace)
+library(RPostgreSQL)
+library(DescTools)
+```
+
+
+```{r}
+library(DBI)
+
+db <- 'calculation'  #provide the name of your db
+
+host_db <- 'localhost' #i.e. 
+
+db_port <- '5432'  # or any other port specified by the DBA
+
+db_user <- 'yuyue'  
+
+db_password <- '136818'
+
+con <- dbConnect(RPostgres::Postgres(), dbname = db, host=host_db, port=db_port, user=db_user, password=db_password)
+```
+
+```{r}
+dbWriteTable(con, "chem_comptox25022021", chem_comptox)
+```
+
+```{r}
+dbWriteTable(con, "calculation_countryis", calculation_countryis)
+```
+
+read all tables
+```{r}
+files <- list.files(pattern = "*.xlsx", full.names = TRUE)
+file_name <- list.files(pattern = "*.xlsx")
+
+readexcel <- function(x, y){
+  #browser()
+  x <- read_excel(x)
+  y <- gsub(".xlsx", "", y)
+  assign(y, x, envir = .GlobalEnv)
+}
+
+map2(files, file_name, readexcel)
+```
+
+
+give ids to input_bayer from connections to the `def` tables
+*should add checking steps like checking NAs(things that do not occur in our dataset but provided by Bayer)*
+```{r}
+input_id <- input_bayer %>%
+  left_join(def_country, by = "name_country") %>%
+  select(-c(description_country, remarks_country, description_bayer, remarks_bayer))
+
+input_id <- input_id %>%
+  left_join(def_crop, by = "name_crop") %>%
+  select(-c(description_crop, remarks_crop, scientificname_crop))
+  
+input_id <- input_id %>%
+  left_join(def_cropstage, by = "name_cropstage") %>%
+  select(-c(description_cropstage, remarks_cropstage))
+
+def_bbch <- def_bbch %>%
+  select(code_bbch, description_bbch, remarks_bbch) %>%
+  distinct(.) %>%
+  mutate(id_bbch = row_number()) %>%
+  select(id_bbch, code_bbch, description_bbch, remarks_bbch)
+
+input_id <- input_id %>%
+  left_join(def_bbch, by = "code_bbch") %>%
+  select(-c(description_bbch, remarks_bbch))
+
+input_id <- input_id %>%
+  left_join(def_chemical, by = "casrn_chemical") %>%
+  select(-c(description_chemical, remarks_chemical))
+
+input_id <- input_id %>%
+  left_join(def_app, by = "name_app") %>%
+  select(-c(description_app, remarks_app))
+```
+
+```{r}
+input_idna <- input_id %>%
+  filter(is.na(id_chemical))
+```
+
+
+combine ids with association tables
+
+*if put names in, duplicate, create multiple names*
+```{r}
+assn_crop_cropclass1 <- assn_crop_cropclass %>%
+  select(-name_crop)
+assn_id <- input_id %>%
+  left_join(assn_crop_cropclass1, by = "id_crop")
+
+assn_app_refapp1 <- assn_app_refapp %>%
+  select(id_app_refapp, id_app, id_refapp)
+assn_id <- assn_id %>%
+  left_join(assn_app_refapp1, by = "id_app")
+
+assn_cropclass_refapp_appdrift1 <- assn_cropclass_refapp_appdrift %>% #remember crop height
+  select(id_cropclass_refapp_appdrift, id_refapp, id_cropclass, id_appdrift, `height<50cm`)
+assn_cropclass_refapp_appdrift1 <- assn_cropclass_refapp_appdrift1 %>%
+  filter(`height<50cm` == "T")
+assn_id <- merge(assn_id, assn_cropclass_refapp_appdrift1, by = c("id_refapp", "id_cropclass"), all.x = TRUE)
+
+```
+
+```{r}
+summary(assn_id)
+```
+
+
+
+input tables join
+```{r}
+input_cropintercept1 <- input_cropintercept %>%
+  select(id_inputci, id_crop_cropstage, id_crop, id_cropstage, code_bbch, `ci_m^2/m^2`)
+join_ci <- assn_id %>%
+  left_join(input_cropintercept1, by = c("id_crop", "id_cropstage")) %>%
+  mutate(`ci_m^2/m^2` = as.numeric(`ci_m^2/m^2`))
+na_ci <- join_ci %>%
+  filter(is.na(`ci_m^2/m^2`))
+
+input_pestcheck <- input_pestlci %>%
+  mutate(ci_diff = `ci_m^2/m^2_1` - round(`ci_m^2/m^2_1`, 2))
+
+input_pestlci1 <- input_pestlci %>%
+  select(id_pestlci, id_appdrift_ci, id_appdrift, `ci_m^2/m^2`, `c_primair_[kg/kg]`, `c_primsoil_[kg/kg]`, `c_primcrop_[kg/kg]`, `c_primofffield_[kg/kg]`) 
+join_pestlci <- join_ci %>%
+  left_join(input_pestlci1, by = c("id_appdrift", "ci_m^2/m^2"))
+
+join_pestlcicheck <- join_pestlci %>%
+  filter(is.na(id_pestlci))
+
+input_offfield1 <- input_offfield %>%
+  select(id_offfield, id_country, `frac_agr.soil_[m^3/m^3]`, `frac_nat.soil_[m^3/m^3]`, `frac_water_[m^3/m^3]`)
+join_offfield <- join_pestlci %>%
+  left_join(input_offfield1, by = "id_country")
+
+input_usetox1 <- input_usetox %>%
+  select(id_usetox, id_chemical, casrn_chemical, `cf_air_[PAF m^3d/kg]`, `cf_water_[PAF m^3d/kg]`, `cf_soiln_[PAF m^3d/kg]`, `cf_soila_[PAF m^3d/kg]`)
+join_usetox <- join_offfield %>%
+  left_join(input_usetox1, by = "casrn_chemical")
+```
+
+
+
+
+```{r}
+summary(join_pestlci)
+```
+
+
+```{r}
+summary(join_usetox)
+```
+
+
+
+calculating impact scores
+```{r}
+calculation <- join_usetox %>%
+  mutate(`applied_dose_[kg/ha]` = case_when(is.na(`treated_area_[1000ha/yr]`) ~ NA_real_,
+                                  `treated_area_[1000ha/yr]` == 0 ~ 0,
+                                  TRUE ~ `applied_mass_[1000kg/yr]`/`treated_area_[1000ha/yr]`))
+```
+
+is
+```{r}
+calculation_is <- calculation %>%
+  mutate(`is_air_[PAFm^3d/kg]` = `c_primair_[kg/kg]` * `cf_air_[PAF m^3d/kg]`) %>%
+  mutate(`is_nat.soil_offField_[PAFm^3d/kg]` = `c_primofffield_[kg/kg]` * `frac_nat.soil_[m^3/m^3]` * `cf_soiln_[PAF m^3d/kg]`) %>%
+  mutate(`is_water_offField_[PAFm^3d/kg]` = `c_primofffield_[kg/kg]` * `frac_water_[m^3/m^3]` * `cf_water_[PAF m^3d/kg]`) %>%
+  #field soil and off-field soil together
+  mutate(`is_agr.soil_[PAFm^3d/kg]` = `c_primsoil_[kg/kg]` * `cf_soila_[PAF m^3d/kg]` + `c_primofffield_[kg/kg]` * `frac_agr.soil_[m^3/m^3]` * `cf_soila_[PAF m^3d/kg]`) %>%
+  #field soil and off-field soil separate
+  mutate(`is_agr.soil_field_[PAFm^3d/kg]` = `c_primsoil_[kg/kg]` * `cf_soila_[PAF m^3d/kg]`) %>%
+  mutate(`is_agr.soil_offField_[PAFm^3d/kg]` = `c_primofffield_[kg/kg]` * `frac_agr.soil_[m^3/m^3]` * `cf_soila_[PAF m^3d/kg]`)
+```
+
+unit_is
+```{r}
+calculation_unitis <- calculation_is %>%
+  mutate(`is_air_[PAFm^3d/ha]` = `is_air_[PAFm^3d/kg]` * `applied_dose_[kg/ha]`) %>%
+  mutate(`is_nat.soil_offField_[PAFm^3d/ha]` = `is_nat.soil_offField_[PAFm^3d/kg]` * `applied_dose_[kg/ha]`) %>%
+  mutate(`is_water_offField_[PAFm^3d/ha]` = `is_water_offField_[PAFm^3d/kg]` * `applied_dose_[kg/ha]`) %>%
+  # field soil and off-field soil together
+  mutate(`is_agr.soil_[PAFm^3d/ha]` = `is_agr.soil_[PAFm^3d/kg]` * `applied_dose_[kg/ha]`) %>%
+  # field soil and off-field soil separate
+  mutate(`is_agr.soil_field_[PAFm^3d/ha]` = `is_agr.soil_field_[PAFm^3d/kg]` * `applied_dose_[kg/ha]`) %>%
+  mutate(`is_agr.soil_offField_[PAFm^3d/ha]` = `is_agr.soil_offField_[PAFm^3d/kg]` * `applied_dose_[kg/ha]`)
+```
+
+Annual country-level freshwater impacts
+```{r}
+calculation_countryis <- calculation_unitis %>%
+  mutate(`is_air_[PAFm^3d/country/yr]` = `is_air_[PAFm^3d/ha]` * `treated_area_[1000ha/yr]` * 1000) %>%
+  mutate(`is_nat.soil_offField_[PAFm^3d/country/yr]` = `is_nat.soil_offField_[PAFm^3d/ha]` * `treated_area_[1000ha/yr]` * 1000) %>%
+  mutate(`is_water_offField_[PAFm^3d/country/yr]` = `is_water_offField_[PAFm^3d/ha]` * `treated_area_[1000ha/yr]` * 1000) %>%
+  # field soil and off-field soil together
+  mutate(`is_agr.soil_[PAFm^3d/country/yr]` = `is_agr.soil_[PAFm^3d/ha]` * `treated_area_[1000ha/yr]` * 1000) %>%
+  # field soil and off-field soil separate
+  mutate(`is_agr.soil_field_[PAFm^3d/country/yr]` = `is_agr.soil_field_[PAFm^3d/ha]` * `treated_area_[1000ha/yr]` * 1000) %>%
+  mutate(`is_agr.soil_offField_[PAFm^3d/country/yr]` = `is_agr.soil_offField_[PAFm^3d/ha]` * `treated_area_[1000ha/yr]` * 1000)
+```
+
+```{r}
+summary(calculation_countryis)
+```
+
+
+```{r}
+countryis_na <- calculation_countryis %>%
+  filter(is.na(`is_agr.soil_[PAFm^3d/country/yr]`))
+```
+
+write table to database
+```{r}
+dbWriteTable(con, "calculation_210307", calculation_countryis)
+```
+
+---
+
+bbch
+```{r}
+bbch_bayer <- calculation_countryis %>%
+  select(code_bbch.x, name_crop, name_cropclass, name_cropstage, `ci_m^2/m^2`, code_bbch.y, name_country) %>%
+  unique()
+```
+
+```{r}
+write.csv(calculation_countryis, file = "calculation_countryis.csv")
+```
+
+```{r}
+appliedmass_NA <- calculation_countryis %>%
+  filter(`applied_mass_[1000kg/yr]` == 0)
+treatedarea_NA <- calculation_countryis %>%
+  filter(`treated_area_[1000ha/yr]` == 0)
+```
+
+```{r}
+crops_bayer <- calculation_countryis %>%
+  filter(name_crop == "BRASSICAS")
+```
+
+

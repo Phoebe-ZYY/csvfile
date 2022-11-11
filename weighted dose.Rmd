@@ -1,0 +1,2522 @@
+---
+title: "weighted dose"
+output: html_notebook
+---
+
+```{r}
+summary(input2016_cas)
+summary(input2017_cas)
+summary(input2018_cas)
+summary(input2019_cas)
+summary(input2020_cas)
+input_cas <- rbind(input2016_app, input2017_app, input2018_app, input2019_app, input2020_app)
+summary(input_cas)
+
+```
+
+
+
+```{r}
+#clean area or mass < 0
+input_cas <- input_cas %>%
+  filter(treated_area_kha > 0.000) %>%
+  filter(applied_mass_kkg > 0.000) # 22684 rows deleted, 
+#clean dose > 1000, Spain & Venezuela cases
+input_cas_doseover1000 <- input_cas %>%
+  filter(dose_kgperha >= 1000)
+summary(input_cas)
+input_cas_dosebelow1000 <- input_cas %>%
+  filter(dose_kgperha < 1000) # 87 rows deleted
+input_cas <- input_cas_dosebelow1000
+
+summary(input_cas)
+input_cas_unspecchem <- input_cas %>%
+  filter(casrn_chemical == "NAME") # 60237 rows
+input_cas_unspecsummary <- input_cas_unspecchem %>%
+  group_by(name_chemclass) %>%
+  summarize(mass = sum(applied_mass_kkg))  #455151 biological
+sum(input_cas_unspecchem$applied_mass_kkg)/sum(input_cas$applied_mass_kkg) 
+
+input_cas_summary <- input_cas %>%
+  group_by(name_chemclass) %>%
+  summarize(mass = sum(applied_mass_kkg)) #biological
+```
+
+
+```{r}
+input_cas_dose <- input_cas %>%
+  mutate(dose = round(applied_mass_kkg/treated_area_kha,4)) %>%
+  filter(dose != 0 | dose_kgperha != 0) %>% #filter 0 dose < 0.0005, 2797 rows, 1549835
+  mutate(dosediff = (dose - dose_kgperha)/dose_kgperha) %>%
+  mutate(dosediffis = case_when(dosediff <= 0.05 & dosediff >= -0.05 ~ "no",
+                                TRUE ~ "check")) %>%
+  mutate(dose = case_when(dosediff ==  -1 ~ 0.001,
+                          dosediff == Inf ~ 0.001,
+                          TRUE ~ dose )) %>% # keep small doses to 0.001
+  mutate(dosediff = (dose - dose_kgperha)/dose_kgperha) %>%
+  mutate(dosediffis = case_when(dosediff <= 0.5 & dosediff >= -0.5 ~ "no",
+                                TRUE ~ "check")) %>%#check situations with very small mass 3161 rows without Inf -> considering differences due to rounding -> accept original doses
+  mutate(dose = case_when(applied_mass_kkg == 0.001 & dose_kgperha != 0 ~ dose_kgperha,
+                          TRUE ~ dose)) %>% # keep doses for reporting small masses (0.001) to original doses
+  mutate(dosediff = (dose - dose_kgperha)/dose_kgperha) %>%
+  mutate(dosediffis = case_when(dosediff <= 0.5 & dosediff >= -0.5 ~ "no",
+                                TRUE ~ "check"))
+```
+
+
+
+
+```{r}
+#filter unspecific chemicals and pheromones/biological
+input_caschem <- input_cas_dose %>%
+  filter(casrn_chemical != "NAME") %>%
+  filter(name_activegroup != "SEMIOCHEMICALS/PHEROMONES") %>%
+  filter(name_chemclass1 != "biological") %>%
+  filter(name_crop_earthstat != "out of scope")
+```
+
+
+```{r}
+#check if crop in cropmap
+crop_incropmap <- read_xlsx("C:/me/Database/harmonization/harmonization_crop.xlsx", sheet = "incropmap")
+input_caschem <- input_caschem %>%
+  left_join(crop_incropmap, by = c("name_crop_earthstat"))
+input_caschem_notincropmap <- input_caschem %>%
+  filter(incropmap == "no")
+sum(input_caschem_notincropmap$applied_mass_kkg)/sum(input_cas_dose$applied_mass_kkg)
+input_caschem <- input_caschem %>%
+  filter(incropmap == "yes")
+```
+
+```{r}
+#adjust application method or bbch
+cropstage_indication <- input_caschem %>%
+  group_by(name_indication, name_activeindication, name_stagegroup, name_cropstage, name_app,name_refapp, bbch_specific) %>%
+  summarize(count = n(), summass = sum(applied_mass_kkg))
+write.csv(cropstage_indication, "harmonization_treatment.csv")
+```
+
+
+
+```{r}
+# year count for country-crop-chemical and mutate classes
+input_cas_yearsummary <- input_caschem %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  summarize(yearcount = n_distinct(Year))
+input_cas_year <- input_caschem %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  mutate(yearcount = n_distinct(Year)) %>%
+  mutate(yearcountgroup = case_when(yearcount == 1 ~ "Class3",
+                                    yearcount == 2 | yearcount == 3 ~ "Class2",
+                                    yearcount == 4 | yearcount == 5 ~ "Class1"))
+```
+
+
+```{r}
+#country count for crop-chemical
+input_cas_countrysummary <- input_caschem %>%
+  group_by(name_crop_earthstat, casrn_chemical) %>%
+  summarize(countrycount = n_distinct(name_country)) #-> range from 1 to 68
+n_distinct(input_cas_countrysummary$countrycount)
+unique(input_cas_countrysummary$countrycount)
+
+```
+
+```{r}
+harmonization_source <- read_xlsx("C:/me/Database/harmonization/harmonization_source.xlsx", sheet = 1)
+harmonization_source <- harmonization_source %>%
+  select(name_source, name_sourcegroup)
+input_source <- input_caschem %>%
+  left_join(harmonization_source, by = c("name_source" = "name_source")) #%>%
+
+
+summary_wdha_yearsource <- input_source %>%
+  left_join(crop_id, by = c("name_crop_earthstat" = "CROPNAME")) %>%
+  group_by(name_country, `Short Name`, casrn_chemical, name_region.y, name_chemclass1) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(massperc = treated_area_kha/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, `Short Name`, casrn_chemical, summass, sumarea, name_region.y, name_chemclass1, mindose, maxdose, name_sourcegroup) %>%
+  #summarize(wd = sum(normalizedweight * dose))
+  summarize(wd = sum(applied_mass_kkg)/sum(treated_area_kha), count = n_distinct(Year))
+
+  mutate(score = case_when(name_sourcegroup == "panel" ~ 1,
+                           name_sourcegroup == "bayer" | name_sourcegroup == "internal" ~ 0.5,
+                           name_sourcegroup == "industrial" ~ 0.1))
+unique(input_source$name_sourcegroup)
+```
+
+```{r}
+#weighted dose calculation
+summary_wd <- input_source %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  mutate(summass = sum(applied_mass_kkg)) %>%
+  mutate(massperc = applied_mass_kkg/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  summarize(wd = sum(normalizedweight * dose))
+
+summary_wdcountry <- summary_wd %>%
+  group_by(name_country) %>%
+  summarize(count = n())
+
+input_wd <- input_source %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  mutate(summass = sum(applied_mass_kkg)) %>%
+  mutate(massperc = applied_mass_kkg/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  mutate(wd = sum(normalizedweight * dose)) %>%
+  mutate(doseratio = dose/wd)
+
+input_wdratio <- input_wd %>%
+  filter(doseratio > 10 | doseratio < 0.1) %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  summarize(count = n())
+input_wdcountry <- input_wdratio %>%
+  group_by(name_country) %>%
+  summarize(count = n()) %>%
+  full_join(summary_wdcountry, by = c("name_country" = "name_country")) %>%
+  mutate(perc = round(count.x/count.y,2))
+```
+
+#stage group and crop stage combination
+```{r}
+bbch_stagegroup <- input_source %>%
+  group_by(name_stagegroup, name_cropstage) %>%
+  summarize(summass = sum(applied_mass_kkg))
+```
+
+#moa & moa group combination
+```{r}
+harmonization_moagroup <- read_xlsx("C:/me/Database/harmonization/harmonization_moa.xlsx", sheet = 3)
+moa_moagroup <- input_source %>%
+  group_by(name_moagroup) %>%
+  summarize(summass = sum(applied_mass_kkg), sumarea = sum(treated_area_kha)) %>%
+  left_join(harmonization_moagroup, by = "name_moagroup")
+moagroup <- moa_moagroup %>%
+  group_by(moa_group) %>%
+  summarize(summass = sum(summass), sumarea = sum(sumarea))
+```
+
+
+# area as weighting factor
+```{r}
+#weighted dose calculation
+summary_wdha <- input_source %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose  =max(dose)) %>%
+  mutate(massperc = treated_area_kha/sumarea, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, mindose, maxdose, summass, sumarea, name_region, name_cropgroup, name_chemclass) %>%
+  summarize(wd = sum(normalizedweight * dose))
+
+summary_wdhacountry <- summary_wdha %>%
+  group_by(name_country) %>%
+  summarize(count = n())
+
+input_wdha <- input_source %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg)) %>%
+  mutate(massperc = treated_area_kha/sumarea, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  mutate(wd = sum(normalizedweight * dose)) %>%
+  mutate(doseratio = dose/wd)
+
+input_wdharatio <- input_wdha %>%
+  filter(doseratio > 10 | doseratio < 0.1) %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  summarize(count = n())
+
+```
+
+
+# area as weighting factor, adding indication
+```{r}
+#weighted dose calculation
+summary_wdhaindication <- input_source %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, name_indication) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose  =max(dose)) %>%
+  mutate(massperc = treated_area_kha/sumarea, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, name_indication, mindose, maxdose, summass, sumarea, name_region.y, name_cropgroup, name_chemclass) %>%
+  summarize(wd = sum(normalizedweight * dose))
+
+summary_wdhacountryindication <- summary_wdhaindication %>%
+  group_by(name_country) %>%
+  summarize(count = n())
+
+input_wdhaindication <- input_source %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, name_indication) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg)) %>%
+  mutate(massperc = treated_area_kha/sumarea, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, name_indication, name_region, name_cropgroup, name_chemclass) %>%
+  mutate(wd = sum(normalizedweight * dose)) %>%
+  mutate(doseratio = dose/wd)
+
+```
+
+
+```{r}
+sourcedose <- input_cas_dose %>%
+  mutate(dosegroup = case_when(dose < 20 & dose >= 0 ~ "<20",
+                               dose >= 20 & dose <30 ~ "20~30",
+                               dose >= 30 & dose < 100 ~ "30~100",
+                               dose >= 100 & dose < 600 ~ "100~600",
+                               dose >=600 ~ ">600",
+                               dose <0 ~ "<0")) #%>%
+  group_by(dosegroup) %>%
+  mutate(countgroup = n()) %>%
+  ungroup() %>%
+  group_by(name_source, dosegroup, countgroup) %>%
+  summarize(count = n()) %>%
+  mutate(perc = round(count/countgroup,2)) %>%
+  ungroup() %>%
+  group_by(dosegroup) %>%
+  arrange(desc(perc)) %>%
+  mutate(Index = 1:n(), name_source = ifelse(Index >3, "Other", name_source))
+  
+sourcedose_country <- sourcedose %>%
+  group_by(name_country, name_crop_earthstat) %>% 
+  mutate(countcountrycrop = n()) %>%
+  group_by(name_country, dosegroup, name_crop_earthstat, countcountrycrop) %>%
+  summarize(countlargedose = n()) %>%
+  filter(dosegroup == ">600" | dosegroup == "100~600") %>%
+  mutate(perc = round(countlargedose/countcountrycrop,2))
+
+
+```
+
+# dose > 100kg/ha
+```{r}
+input_cas %>%
+  filter(!is.na(name_cropgroup)) %>%
+  #ggplot(., aes(x = dose_kgperha, fill = name_cropgroup)) +
+  ggplot(., aes(x = dose_kgperha)) +
+  geom_histogram()+
+  scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          labels = trans_format("log10", math_format(10^.x)))+
+  scale_fill_brewer(palette="Paired")+
+  theme(axis.text = element_text(size = 30), axis.title = element_text(size = 30), legend.text = element_text(size = 30), legend.title = element_text(size = 30))
+ggsave("dosehistogram.png", width = 50, height = 50, units = "cm")
+
+
+input_cas %>%
+  filter(dose_kgperha > 100) %>%
+  ggplot(., aes(y = applied_mass_kkg, x = treated_area_kha, color = name_region)) +
+  geom_point()+
+  scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          labels = trans_format("log10", math_format(10^.x)))+
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          labels = trans_format("log10", math_format(10^.x))) +
+  facet_wrap(.~name_cropgroup,nrow = 4)
+
+input_cas100 <- input_cas %>%
+  filter(dose_kgperha > 100) #3750 rows
+input_cas100summary <- input_cas100 %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  summarize(count = n())
+```
+
+```{r}
+sourcedose %>%
+  filter(name_source == "PANEL-EXTRAPOLATION") %>%
+  filter(dosegroup != "<20") %>%
+  ggplot(., aes(x = dose)) +
+  geom_histogram()
+ggplot(sourcedose, aes(x = dosegroup, fill = name_source)) +
+#ggplot(input2020_hist_chem, aes(x = dose, y=..scaled.., fill = name_region)) +
+  geom_density(alpha = .3)
+  #geom_histogram(binwidth = .5, position = "identity", alpha = .5)
+ggplot(input2020_hist_chem, aes(x = dose)) +
+  geom_density(alpha = .3)
+```
+
+```{r}
+input_quant <- input_cas_dose %>%
+  filter(treated_area_kha != 0) %>%
+  group_by(name_ai, name_crop_earthstat, casrn_chemical) %>%
+  mutate(quant5 = round(quantile(dose, probs = 0.0035),3),
+         quant95 = round(quantile(dose, probs = 0.9965),3)) %>%
+  mutate(interval = case_when(dose <= quant95 & dose >= quant5 ~ "in",
+                              dose > quant95 ~ "higher",
+                              dose < quant5 ~ "lower",
+                              TRUE ~ "other"))
+cas <- "1897-45-6"
+crop <- "potato"
+input_quantcascrop <- input_quant %>%
+  filter(name_crop_earthstat == crop) %>%
+  filter(casrn_chemical == cas)
+ggplot(input_quantcascrop, aes(x = dose))+
+  geom_density(alpha = .3)
+
+input_quantregion <- input_quant %>%
+  group_by(name_region, name_ai, name_crop_earthstat, casrn_chemical) %>%
+  mutate(quant5region = round(quantile(dose, probs = 0.000355),3),
+         quant95region = round(quantile(dose, probs = 0.99655),3)) %>%
+  mutate(intervalregion = case_when(dose <= quant95region & dose >= quant5region ~ "in",
+                              dose > quant95region ~ "higher",
+                              dose < quant5region ~ "lower",
+                              TRUE ~ "other")) %>%
+  mutate(ratio5 = round(max(quant5region/quant5, quant5/quant5region),2), ratio95 = round(max(quant95region/quant95, quant95/quant95region),2))
+
+input_quantcountry <- input_quantregion %>%
+  group_by(name_country, name_ai, name_crop_earthstat, casrn_chemical) %>%
+  summarize(ratio5 = mean(ratio5), ratio95 = mean(ratio95)) %>%
+  filter(ratio5 > 5 | ratio95 > 5) %>%
+  group_by(name_country) %>%
+  summarize(count = n())
+
+ggplot(input2020_quantregion, aes(x = ratio5, y = ratio95, color = name_region)) +
+  geom_point()
+
+input_quant5region <- input2020_quantregion %>%
+  group_by(name_country) %>%
+  mutate(countcountry = n()) %>%
+  filter(interval == "lower") %>%
+  group_by(name_country, countcountry) %>%
+  summarize(countcountrylow = n()) %>%
+  mutate(ratio = round(countcountrylow/countcountry,2))
+
+input_quant95region <- input_quantregion %>%
+  group_by(name_country) %>%
+  mutate(countcountry = n()) %>%
+  filter(interval == "higher") %>%
+  group_by(name_country, countcountry) %>%
+  summarize(countcountrylow = n()) %>%
+  mutate(ratio = round(countcountrylow/countcountry,2))
+
+```
+
+
+# would like to try using treated area as a weight factor
+# would like to separate seed treatment
+# crop stage group = seed dressing & refapp = seed treatment would cover seed treatment situations
+
+```{r}
+input_sourceseed <- input_source %>%
+  filter(name_stagegroup == "00 SEED-DRESSING" | name_refapp == "Seed treatment" | name_indication == "SEED-DRESSING") #%>%
+  filter(dose > 5)
+
+n_distinct(input_sourceseed$name_ai)
+```
+
+```{r}
+#weighted dose calculation
+summary_wdhaseed <- input_sourceseed %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg)) %>%
+  mutate(massperc = treated_area_kha/sumarea, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, sumarea, summass) %>%
+  summarize(wd = sum(normalizedweight * dose))
+
+summary_wdhacountryseed <- summary_wdhaseed %>%
+  group_by(name_country) %>%
+  summarize(count = n())
+
+input_wdhaseed <- input_sourceseed %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  mutate(summass = sum(treated_area_kha)) %>%
+  mutate(massperc = treated_area_kha/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  mutate(wd = sum(normalizedweight * dose)) %>%
+  mutate(doseratio = dose/wd)
+
+input_wdharatioseed <- input_wdhaseed %>%
+  filter(doseratio > 10 | doseratio < 0.1) %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  summarize(count = n())
+
+```
+
+#bcaboot calculating intervals for weighted average dose
+```{r}
+crop_country_chemical <- input_caschem %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  summarize(count = n())
+bcaboot.out <- matrix(data="X", nrow=nrow(crop_country_chemical), ncol= 6, dimnames=list(NULL, c("CASRN", "crop", "country", "wd", "bca0.05", "bca0.95")))
+
+ i <- 5
+for(i in c(1:nrow(crop_country_chemical))){
+  chem <- as.character(crop_country_chemical[i, 3])
+  crop <- as.character(crop_country_chemical[i, 2])
+  country <- as.character(crop_country_chemical[i, 1])
+  input_summary <- input_caschem %>%
+    group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+    mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg)) %>%
+    mutate(areaperc = treated_area_kha/sumarea, variabilityweight = areaperc * 1) %>%
+    mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+    filter(name_country == country) %>%
+    filter(name_crop_earthstat == crop) %>%
+    filter(casrn_chemical == chem) #%>%
+    
+  #library(bcaboot)
+  rfunc <- function(input_summary){
+    wd <- sum(input_summary[,44] * input_summary[,51])
+  }
+
+  #constructing bootstrap confidence intervals involves merely calling bcajack
+  set.seed(1234)
+  result <- bcajack(x = input_summary, B = 1000, func = rfunc, verbose = FALSE)
+
+  #the result contains several components, the confidence interval limits can be obtained via
+  knitr::kable(result$lims, digits = 3)
+  knitr::kable(result$stats, digits = 3)
+
+  bca0.05 <- result$lims[2,1]
+  bca0.95 <- result$lims[8,1]
+  
+  wd <- sum(input_summary[,44] * input_summary[,51])
+  
+  val.out<- c(chem,
+              crop, 
+              country, 
+              wd,
+              bca0.05,
+              bca0.95
+              ) 
+  
+  bcaboot.out[i,]<- val.out
+  print(i)
+}
+
+bcaboot.out.df <- as.data.frame(bcaboot.out)
+write.csv(bcaboot.out.df, "20220725bcaboot.out.df.seed.csv")
+
+bcaplot(result)
+```
+
+
+
+# would like to separate soil incorporation
+# name_refapp = “soil incorporation “+ stage group = “0 soil”
+
+```{r}
+input_sourcesoil <- input_source %>%
+  filter(name_stagegroup == "0 SOIL" | name_refapp == "Soil incorporation") #%>%
+  filter(dose > 100)
+
+n_distinct(input_sourcesoil$name_ai)
+```
+
+```{r}
+#weighted dose calculation
+summary_wdhasoil <- input_sourcesoil %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg)) %>%
+  mutate(massperc = treated_area_kha/sumarea, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, sumarea, summass) %>%
+  summarize(wd = sum(normalizedweight * dose))
+
+summary_wdhacountrysoil <- summary_wdhasoil %>%
+  group_by(name_country) %>%
+  summarize(count = n())
+
+input_wdhasoil <- input_sourcesoil %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  mutate(summass = sum(treated_area_kha)) %>%
+  mutate(massperc = treated_area_kha/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  mutate(wd = sum(normalizedweight * dose)) %>%
+  mutate(doseratio = dose/wd)
+
+input_wdharatiosoil <- input_wdhasoil %>%
+  filter(doseratio > 10 | doseratio < 0.1) %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  summarize(count = n())
+```
+
+#seperate phernomones
+#SEMIOCHEMICALS/PHEROMONES
+
+```{r}
+input_sourcepher <- input_source %>%
+  filter(name_activegroup == "SEMIOCHEMICALS/PHEROMONES")
+
+sum(input_sourcepher$applied_mass_kkg)/sum(input_sourceother$applied_mass_kkg)
+
+input_sourcenopher <- input_source %>%
+  filter(name_activegroup != "SEMIOCHEMICALS/PHEROMONES")
+
+unique(input_sourcenopher$casrn_chemical)
+unique(harmonization_casrn$casrn_chemical)
+unique(summary_wdhaother$casrn_chemical)
+unique()
+```
+
+```{r}
+#weighted dose calculation
+summary_wdhapher <- input_sourcepher %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(massperc = treated_area_kha/sumarea, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, sumarea, summass, mindose, maxdose) %>%
+  summarize(wd = sum(normalizedweight * dose))
+
+summary_wdhacountrypher <- summary_wdhapher %>%
+  group_by(name_country) %>%
+  summarize(count = n())
+
+input_wdhapher <- input_sourcepher %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  mutate(summass = sum(treated_area_kha)) %>%
+  mutate(massperc = treated_area_kha/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  mutate(wd = sum(normalizedweight * dose)) %>%
+  mutate(doseratio = dose/wd)
+
+input_wdharatiopher <- input_wdhapher %>%
+  filter(doseratio > 10 | doseratio < 0.1) %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  summarize(count = n())
+```
+
+#other not including seed/soil/phernomone
+```{r}
+input_sourceother <- input_source %>%
+  filter(name_stagegroup != "00 SEED-DRESSING") %>%
+  filter(name_refapp != "Seed treatment") %>%
+  filter(name_stagegroup != "0 SOIL") %>%
+  filter(name_refapp != "Soil incorporation") %>%
+  #filter(name_activegroup != "SEMIOCHEMICALS/PHEROMONES") %>%
+  filter(name_indication != "SEED-DRESSING")
+```
+
+
+```{r}
+#weighted dose calculation
+summary_wdhaother <- input_sourceother %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, name_region.y, name_cropgroup, name_chemclass) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(massperc = treated_area_kha/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, summass, sumarea, name_region.y, name_cropgroup, name_chemclass, mindose, maxdose) %>%
+  #summarize(wd = sum(normalizedweight * dose))
+  summarize(wd = sum(applied_mass_kkg)/sum(treated_area_kha))
+
+summary_wdhaotherdiff <- summary_wdhaother %>%
+  mutate(diff = max(mindose/maxdose, maxdose/mindose, na.rm = TRUE)) %>%
+  filter(diff>5)
+
+summary_wdhacountryother <- summary_wdhaother %>%
+  group_by(name_country) %>%
+  summarize(count = n())
+
+input_wdhaother <- input_sourceother %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  mutate(mindose = min(dose_kgperha), maxdose = max(dose_kgperha)) %>%
+  mutate(summass = sum(treated_area_kha)) %>%
+  mutate(massperc = treated_area_kha/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  #mutate(wd = sum(normalizedweight * dose)) %>%
+  mutate(wd = sum(applied_mass_kkg)/sum(treated_area_kha)) %>%
+  mutate(doseratio = dose/wd)
+
+input_wdharatioother <- input_wdhaother %>%
+  filter(doseratio > 10 | doseratio < 0.1) #%>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  summarize(mindose = min(dose_kgperha), maxdose = max(dose_kgperha), minwd = min(wd), maxwd = max(wd))
+input_wdhacountryother <- input_wdharatioother %>%
+  group_by(name_country) %>%
+  summarize(count = n()) %>%
+  full_join(summary_wdcountry, by = c("name_country" = "name_country")) %>%
+  mutate(perc = round(count.x/count.y,2))
+```
+
+
+#other not including seed/soil/phernomone, and separate by indication
+```{r}
+#weighted dose calculation
+summary_wdhaotherindi <- input_sourceother %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, name_region, name_cropgroup, name_chemclass, name_indication) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(massperc = treated_area_kha/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, summass, sumarea, name_region, name_cropgroup, name_indication, name_chemclass, mindose, maxdose) %>%
+  #summarize(wd = sum(normalizedweight * dose))
+  summarize(wd = sum(applied_mass_kkg)/sum(treated_area_kha))
+
+summary_wdhaotherdiff <- summary_wdhaother %>%
+  mutate(diff = max(mindose/maxdose, maxdose/mindose, na.rm = TRUE)) %>%
+  filter(diff>5)
+
+summary_wdhacountryother <- summary_wdhaother %>%
+  group_by(name_country) %>%
+  summarize(count = n())
+
+input_wdhaother <- input_sourceother %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  mutate(mindose = min(dose_kgperha), maxdose = max(dose_kgperha)) %>%
+  mutate(summass = sum(treated_area_kha)) %>%
+  mutate(massperc = treated_area_kha/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  #mutate(wd = sum(normalizedweight * dose)) %>%
+  mutate(wd = sum(applied_mass_kkg)/sum(treated_area_kha)) %>%
+  mutate(doseratio = dose/wd)
+
+input_wdharatioother <- input_wdhaother %>%
+  filter(doseratio > 10 | doseratio < 0.1) #%>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  summarize(mindose = min(dose_kgperha), maxdose = max(dose_kgperha), minwd = min(wd), maxwd = max(wd))
+input_wdhacountryother <- input_wdharatioother %>%
+  group_by(name_country) %>%
+  summarize(count = n()) %>%
+  full_join(summary_wdcountry, by = c("name_country" = "name_country")) %>%
+  mutate(perc = round(count.x/count.y,2))
+```
+
+#others aggregate by indication, crop-country-indication level
+```{r}
+#weighted dose calculation
+summary_wdhaotheraggrindi <- input_sourceother %>%
+  group_by(name_country, name_crop_earthstat, name_region, name_cropgroup, name_indication) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(massperc = treated_area_kha/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, summass, sumarea, name_region, name_cropgroup, name_indication, mindose, maxdose) %>%
+  #summarize(wd = sum(normalizedweight * dose))
+  summarize(wd = sum(applied_mass_kkg)/sum(treated_area_kha))
+
+summary_wdhaotherdiff <- summary_wdhaother %>%
+  mutate(diff = max(mindose/maxdose, maxdose/mindose, na.rm = TRUE)) %>%
+  filter(diff>5)
+
+summary_wdhacountryother <- summary_wdhaother %>%
+  group_by(name_country) %>%
+  summarize(count = n())
+
+input_wdhaother <- input_sourceother %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  mutate(mindose = min(dose_kgperha), maxdose = max(dose_kgperha)) %>%
+  mutate(summass = sum(treated_area_kha)) %>%
+  mutate(massperc = treated_area_kha/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  #mutate(wd = sum(normalizedweight * dose)) %>%
+  mutate(wd = sum(applied_mass_kkg)/sum(treated_area_kha)) %>%
+  mutate(doseratio = dose/wd)
+
+input_wdharatioother <- input_wdhaother %>%
+  filter(doseratio > 10 | doseratio < 0.1) #%>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  summarize(mindose = min(dose_kgperha), maxdose = max(dose_kgperha), minwd = min(wd), maxwd = max(wd))
+input_wdhacountryother <- input_wdharatioother %>%
+  group_by(name_country) %>%
+  summarize(count = n()) %>%
+  full_join(summary_wdcountry, by = c("name_country" = "name_country")) %>%
+  mutate(perc = round(count.x/count.y,2))
+```
+
+# compare seed treatment/other
+```{r}
+summary_wdhaall <- summary_wdhaother %>%
+  full_join(summary_wdhaseed, by = c("name_country" = "name_country", "name_crop_earthstat" = "name_crop_earthstat", "casrn_chemical" = "casrn_chemical"), suffix = c("other", "seed")) %>%
+  mutate(ratio = wdseed/wdother)
+```
+
+```{r}
+heatmap_cropcountry <- summary_wdha %>%
+  group_by(name_country, name_crop_earthstat, name_region.y, name_cropgroup) %>%
+  summarize(summass = sum(summass))
+p1 <-ggplot() +
+  geom_point(data = heatmap_cropcountry, aes(x = name_crop_earthstat, y = name_country, color = summass), shape = 15, size = 4) +
+  scale_color_gradient(trans = "log",  low = "lightgrey", high = "darkred",breaks = c(0.2, 200, 30000, 1000000), name = "mass") +
+  #theme_tufte(base_family="Helvetica") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + # lables vertical
+        #strip.text.y = element_blank()) +  #remove facet bar on y 
+  #scale_fill_gradient(low = "lightgrey", high = "darkred") +
+  ggtitle("test table") +
+  facet_grid(rows = vars(name_region.y), 
+             cols = vars(name_cropgroup), scales = "free", space="free")
+p1
+ggsave("cropcountry_mass2.png",width = 50, height = 50, units = "cm")
+```
+
+
+```{r}
+summary_wdhaother_crop <- summary_wdhaother %>%
+  group_by(name_crop_earthstat, name_cropgroup) %>%
+  summarize(countai = n_distinct(casrn_chemical))
+
+p2 <- ggplot(data = summary_wdhaother_crop, aes(x = name_crop_earthstat, y = countai)) + 
+  geom_bar(alpha = 0.7, stat = "identity") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  facet_grid(cols = vars(name_cropgroup), scales = "free", space="free")+
+            theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+p2
+```
+
+
+```{r}
+harmonization_countryiso <- read_xlsx("C:/me/Database/harmonization/harmonization_country.xlsx", sheet = 2)
+
+```
+
+#heatmap for crop-country
+```{r}
+library(knitr)
+library(dplyr)
+library(DT)
+library(reshape2)
+
+#select top mass 40 countries
+countrymass <- summary_wdha %>%
+  group_by(name_country) %>%
+  summarize(countrymass = sum(summass)) %>%
+  arrange(desc(countrymass)) %>%
+  slice_head(n = 40)
+#select top mass 50 crops
+cropmass <- summary_wdha %>%
+  group_by(name_crop_earthstat) %>%
+  summarize(cropmass = sum(summass)) %>%
+  arrange(desc(cropmass)) %>%
+  slice_head(n = 50)
+
+#exclude forage, central caribbean
+summary_wdhaiso <- summary_wdha %>%
+  filter(name_country != "CENTRAL AMERICA-CARIBBEAN") %>%
+  left_join(harmonization_countryiso, by = c("name_country" = "name_country")) 
+
+heatmap_cropcountrybar <- summary_wdhaiso %>%
+  filter(name_cropgroup != "Forage") %>%
+  group_by(name_country) %>%
+  mutate(countcountryai = n_distinct(casrn_chemical)) %>%
+  ungroup() %>%
+  group_by(name_crop_earthstat) %>%
+  mutate(countcropai = n_distinct(casrn_chemical)) %>%
+  group_by(ISO3, name_crop_earthstat, name_region.y, name_cropgroup, countcountryai, countcropai, name_country) %>%
+  summarize(summass = sum(summass)) %>%
+  ungroup()%>%
+  filter(name_country %in% countrymass$name_country) %>%
+  filter(name_crop_earthstat %in% cropmass$name_crop_earthstat)
+
+
+mass.matrix <- acast(heatmap_cropcountrybar,
+                      ISO3 ~ name_crop_earthstat, 
+                      value.var = "summass")
+# view the first 6 rows and columns
+kable(head(mass.matrix[, 1:6]))
+
+# idenitfy the region of each country
+# define a colour for each region
+country.region <- heatmap_cropcountrybar %>% 
+  filter(ISO3 %in% rownames(mass.matrix)) %>%
+  select(name_region.y, ISO3) %>%
+  distinct(name_region.y, ISO3) %>%
+  arrange(ISO3)
+# define a colour for each region
+region.col <- factor(country.region$name_region.y)
+levels(region.col) <- c("#e6f5c9", "#fdcdac", "#f4cae4", "#cbd5e8",
+                        "#b3e2cd", "#FFF2AE")
+region.col.dark <- region.col
+levels(region.col.dark) <- c("#a6d854", "#fc8d62",  "#f4cae4", "#8da0cb",
+                             "#66c2a5","#FFF2AE")
+region.col <- as.character(region.col)
+region.col.dark <- as.character(region.col.dark)
+
+
+# idenitfy the cropclass of each crop
+# define a colour for each cropclass
+crop.cropclass <- heatmap_cropcountrybar %>% 
+  filter(name_crop_earthstat %in% colnames(mass.matrix)) %>%
+  select(name_crop_earthstat, name_cropgroup) %>%
+  distinct(name_crop_earthstat, name_cropgroup) %>%
+  arrange(name_crop_earthstat)
+# define a colour for each region
+cropgroup.col <- factor(crop.cropclass$name_cropgroup)
+levels(cropgroup.col) <- c("#fff100", "#ff8c00", "#e81123",
+                        "#ec008c", "#68217a", "#00188f", "#00bcf2", "#00b294", "#009e49", "#bad80a")
+cropgroup.col.dark <- cropgroup.col
+levels(cropgroup.col.dark) <- c("#fff100", "#ff8c00", "#e81123",
+                        "#ec008c", "#68217a", "#00188f", "#00bcf2", "#00b294", "#009e49", "#bad80a")
+cropgroup.col <- as.character(cropgroup.col)
+cropgroup.col.dark <- as.character(cropgroup.col.dark)
+
+countcountryai <- heatmap_cropcountrybar %>%
+  group_by(ISO3) %>%
+  summarize(countcountryai = min(countcountryai))
+
+aibycrop <- heatmap_cropcountrybar %>%
+  group_by(name_crop_earthstat) %>%
+  summarize(countcropai = min(countcropai), sumcropai = sum(summass)) %>%
+  arrange(desc(sumcropai))
+aibycrop <- left_join(data.frame(name_crop_earthstat = colnames(mass.matrix)),
+                      aibycrop,
+                      by = "name_crop_earthstat")
+
+# order countries by number of transplants averaged over years
+aibycountry = heatmap_cropcountrybar %>% 
+  group_by(ISO3) %>%
+  summarise(sumcountryai = sum(summass), countcountryai = min(countcountryai)) %>%
+  arrange(desc(sumcountryai))
+# do a left join to make sure that the countries are in the correct order
+aibycountry <- left_join(data.frame(ISO3 = rownames(mass.matrix)),
+                               aibycountry,
+                               by = "ISO3")
+#aibycountry <- aibycountry$countcountryai
+
+
+
+# install devtools if you don't have it already
+#install.packages("devtools")
+# install the development version of superheat
+#devtools::install_github("rlbarter/superheat")
+library(superheat)
+library(RColorBrewer)
+p <- superheat(as.matrix(mass.matrix),
+          
+          # set heatmap color map
+          heat.pal = brewer.pal(5, "BuPu"),
+          heat.na.col = "white",
+          
+          # order rows in mass applied desc
+          order.rows = order(aibycountry$sumcountryai),
+          
+          # order cols in mass applied desc
+          order.cols = order(aibycrop$sumcropai),
+          
+           # grid line colors
+          grid.vline.col = "white",
+          grid.hline.col = "white",
+          
+          #right plot: pesticide count by country
+          yr = aibycountry$countcountryai,
+          yr.plot.type = "bar",
+          yr.axis.name = "country pesticide count",
+          yr.axis.size = 20,
+          yr.axis.name.size = 20,
+          yr.plot.size = 0.2,
+          yr.bar.col = region.col.dark,
+          yr.obs.col = region.col,
+          
+          
+          # top plot: pesticide count by crop
+          yt = aibycrop$countcropai,
+          yt.plot.type = "bar",
+          yt.axis.name = "crop pesticide count",
+          yt.axis.size = 20,
+          yt.axis.name.size = 20,
+          yt.plot.size = 0.2,
+          yt.bar.col = adjustcolor(cropgroup.col, alpha.f = 0.3),
+          yt.obs.col = adjustcolor(cropgroup.col, alpha.f = 0.3),
+          
+           # left labels
+          left.label.size = 0.05,
+          left.label.text.size = 6,
+          left.label.col = adjustcolor(region.col, alpha.f = 0.3),
+          
+          # bottom labels
+          bottom.label.size = 0.2,
+          bottom.label.text.size = 6,
+          bottom.label.text.angle = 90,
+          bottom.label.col = adjustcolor(cropgroup.col, alpha.f = 0.1),
+          bottom.label.text.alignment = "right",
+          
+          # legend position
+          legend.vspace = 0.02
+          )
+
+p        
+ggsave("20221007heat_all.png", p$plot, width = 20, height = 20, limitsize = FALSE)
+```
+
+
+
+
+#heatmap for crop-country kg/ha dose
+```{r}
+library(knitr)
+library(dplyr)
+library(DT)
+library(reshape2)
+
+#select top mass 40 countries
+countrymass <- summary_wdhaother %>%
+  group_by(name_country) %>%
+  summarize(countrymass = sum(wd)) %>%
+  arrange(desc(countrymass)) %>%
+  slice_head(n = 40)
+#select top mass 50 crops
+cropmass <- summary_wdhaother %>%
+  group_by(name_crop_earthstat) %>%
+  summarize(cropmass = sum(wd)) %>%
+  arrange(desc(cropmass)) %>%
+  slice_head(n = 50)
+
+#exclude forage, central caribbean
+summary_wdhaotheriso <- summary_wdhaother %>%
+  filter(name_country != "CENTRAL AMERICA-CARIBBEAN") %>%
+  left_join(harmonization_countryiso, by = c("name_country" = "name_country")) 
+
+heatmap_cropcountrybar <- summary_wdhaotheriso %>%
+  filter(name_cropgroup != "Forage") %>%
+  group_by(name_country) %>%
+  mutate(countcountryai = n_distinct(casrn_chemical)) %>%
+  ungroup() %>%
+  group_by(name_crop_earthstat) %>%
+  mutate(countcropai = n_distinct(casrn_chemical)) %>%
+  group_by(ISO3, name_crop_earthstat, name_region, name_cropgroup, countcountryai, countcropai, name_country) %>%
+  summarize(summass = sum(wd)) %>%
+  ungroup()%>%
+  filter(name_country %in% countrymass$name_country) %>%
+  filter(name_crop_earthstat %in% cropmass$name_crop_earthstat)
+
+
+mass.matrix <- acast(heatmap_cropcountrybar,
+                      ISO3 ~ name_crop_earthstat, 
+                      value.var = "summass")
+# view the first 6 rows and columns
+kable(head(mass.matrix[, 1:6]))
+
+# idenitfy the region of each country
+# define a colour for each region
+country.region <- heatmap_cropcountrybar %>% 
+  filter(ISO3 %in% rownames(mass.matrix)) %>%
+  select(name_region, ISO3) %>%
+  distinct(name_region, ISO3) %>%
+  arrange(ISO3)
+# define a colour for each region
+region.col <- factor(country.region$name_region)
+levels(region.col) <- c("#e6f5c9", "#fdcdac", "#cbd5e8",
+                        "#b3e2cd")
+region.col.dark <- region.col
+levels(region.col.dark) <- c("#a6d854", "#fc8d62", "#8da0cb",
+                             "#66c2a5")
+region.col <- as.character(region.col)
+region.col.dark <- as.character(region.col.dark)
+
+
+# idenitfy the cropclass of each crop
+# define a colour for each cropclass
+crop.cropclass <- heatmap_cropcountrybar %>% 
+  filter(name_crop_earthstat %in% colnames(mass.matrix)) %>%
+  select(name_crop_earthstat, name_cropgroup) %>%
+  distinct(name_crop_earthstat, name_cropgroup) %>%
+  arrange(name_crop_earthstat)
+# define a colour for each region
+cropgroup.col <- factor(crop.cropclass$name_cropgroup)
+levels(cropgroup.col) <- c("#fff100", "#ff8c00", "#e81123",
+                        "#ec008c", "#68217a", "#00188f", "#00bcf2", "#00b294", "#009e49", "#bad80a")
+cropgroup.col.dark <- cropgroup.col
+levels(cropgroup.col.dark) <- c("#fff100", "#ff8c00", "#e81123",
+                        "#ec008c", "#68217a", "#00188f", "#00bcf2", "#00b294", "#009e49", "#bad80a")
+cropgroup.col <- as.character(cropgroup.col)
+cropgroup.col.dark <- as.character(cropgroup.col.dark)
+
+countcountryai <- heatmap_cropcountrybar %>%
+  group_by(ISO3) %>%
+  summarize(countcountryai = min(countcountryai))
+
+aibycrop <- heatmap_cropcountrybar %>%
+  group_by(name_crop_earthstat) %>%
+  summarize(countcropai = min(countcropai), sumcropai = sum(summass)) %>%
+  arrange(desc(sumcropai))
+aibycrop <- left_join(data.frame(name_crop_earthstat = colnames(mass.matrix)),
+                      aibycrop,
+                      by = "name_crop_earthstat")
+
+# order countries by number of transplants averaged over years
+aibycountry = heatmap_cropcountrybar %>% 
+  group_by(ISO3) %>%
+  summarise(sumcountryai = sum(summass), countcountryai = min(countcountryai)) %>%
+  arrange(desc(sumcountryai))
+# do a left join to make sure that the countries are in the correct order
+aibycountry <- left_join(data.frame(ISO3 = rownames(mass.matrix)),
+                               aibycountry,
+                               by = "ISO3")
+#aibycountry <- aibycountry$countcountryai
+
+
+
+# install devtools if you don't have it already
+#install.packages("devtools")
+# install the development version of superheat
+#devtools::install_github("rlbarter/superheat")
+library(superheat)
+library(RColorBrewer)
+p <- superheat(as.matrix(mass.matrix),
+          
+          # set heatmap color map
+          heat.pal = brewer.pal(5, "BuPu"),
+          heat.na.col = "white",
+          
+          # order rows in mass applied desc
+          order.rows = order(aibycountry$sumcountryai),
+          
+          # order cols in mass applied desc
+          order.cols = order(aibycrop$sumcropai),
+          
+           # grid line colors
+          grid.vline.col = "white",
+          grid.hline.col = "white",
+          
+          #right plot: pesticide count by country
+          yr = aibycountry$countcountryai,
+          yr.plot.type = "bar",
+          yr.axis.name = "country pesticide count",
+          yr.axis.size = 20,
+          yr.axis.name.size = 20,
+          yr.plot.size = 0.2,
+          yr.bar.col = region.col.dark,
+          yr.obs.col = region.col,
+          
+          
+          # top plot: pesticide count by crop
+          yt = aibycrop$countcropai,
+          yt.plot.type = "bar",
+          yt.axis.name = "crop pesticide count",
+          yt.axis.size = 20,
+          yt.axis.name.size = 20,
+          yt.plot.size = 0.2,
+          yt.bar.col = adjustcolor(cropgroup.col, alpha.f = 0.3),
+          yt.obs.col = adjustcolor(cropgroup.col, alpha.f = 0.3),
+          
+           # left labels
+          left.label.size = 0.05,
+          left.label.text.size = 6,
+          left.label.col = adjustcolor(region.col, alpha.f = 0.3),
+          
+          # bottom labels
+          bottom.label.size = 0.2,
+          bottom.label.text.size = 6,
+          bottom.label.text.angle = 90,
+          bottom.label.col = adjustcolor(cropgroup.col, alpha.f = 0.1),
+          bottom.label.text.alignment = "right",
+          
+          # legend position
+          legend.vspace = 0.02
+          )
+
+p        
+ggsave("heatdose.png", p$plot, width = 20, height = 20, limitsize = FALSE)
+```
+
+
+#heatmap for crop-country kg/ha from aggregating dataset
+```{r}
+library(knitr)
+library(dplyr)
+library(DT)
+library(reshape2)
+
+#select top mass 40 countries
+countrymass <- summary_wdhacropcountryother %>%
+  group_by(name_country) %>%
+  summarize(countrymass = sum(wd)) %>%
+  arrange(desc(countrymass)) %>%
+  slice_head(n = 50)
+#select top mass 50 crops
+cropmass <- summary_wdhacropcountryother %>%
+  group_by(name_crop_earthstat) %>%
+  summarize(cropmass = sum(wd)) %>%
+  arrange(desc(cropmass)) %>%
+  slice_head(n = 50)
+
+#exclude forage, central caribbean
+summary_wdhaiso <- summary_wdhacropcountryother %>%
+  filter(name_country != "CENTRAL AMERICA-CARIBBEAN") %>%
+  left_join(harmonization_countryiso, by = c("name_country" = "name_country")) 
+
+heatmap_cropcountrybar <- summary_wdhaiso %>%
+  filter(name_cropgroup != "Forage") %>%
+  group_by(ISO3, name_crop_earthstat, name_region, name_cropgroup, countcountryai, countcropai, name_country) %>%
+  summarize(summass = sum(wd)) %>%
+  ungroup()%>%
+  filter(name_country %in% countrymass$name_country) %>%
+  filter(name_crop_earthstat %in% cropmass$name_crop_earthstat)
+
+
+mass.matrix <- acast(heatmap_cropcountrybar,
+                      ISO3 ~ name_crop_earthstat, 
+                      value.var = "summass")
+# view the first 6 rows and columns
+kable(head(mass.matrix[, 1:6]))
+
+# idenitfy the region of each country
+# define a colour for each region
+country.region <- heatmap_cropcountrybar %>% 
+  filter(ISO3 %in% rownames(mass.matrix)) %>%
+  select(name_region, ISO3) %>%
+  distinct(name_region, ISO3) %>%
+  arrange(ISO3)
+# define a colour for each region
+region.col <- factor(country.region$name_region)
+levels(region.col) <- c("ASIA/PACIFIC" ="#e6f5c9" , "LATIN-AMERICA" = "#fdcdac", "EUROPE/TAMECIS" = "#cbd5e8",
+                       "NORTH-AMERICA" =  "#b3e2cd")
+region.col.dark <- region.col
+levels(region.col.dark) <- c("ASIA/PACIFIC"= "#a6d854","LATIN-AMERICA" ="#fc8d62" ,"EUROPE/TAMECIS" = "#8da0cb",
+                            "NORTH-AMERICA" = "#66c2a5")
+region.col <- as.character(region.col)
+region.col.dark <- as.character(region.col.dark)
+
+
+# idenitfy the cropclass of each crop
+# define a colour for each cropclass
+crop.cropclass <- heatmap_cropcountrybar %>% 
+  filter(name_crop_earthstat %in% colnames(mass.matrix)) %>%
+  select(name_crop_earthstat, name_cropgroup) %>%
+  distinct(name_crop_earthstat, name_cropgroup) %>%
+  arrange(name_crop_earthstat)
+# define a colour for each region
+cropgroup.col <- factor(crop.cropclass$name_cropgroup)
+levels(cropgroup.col) <- c("Treenuts" = "#fff100", "Fruit" = "#ff8c00", "OtherCrops" = "#e81123", "Cereals" = "#ec008c", "Roots&Tubers" = "#68217a", "Pulses" = "#00188f", "Oilcrops" = "#00bcf2", "SugarCrops" = "#00b294", "Fiber" = "#009e49",  "Vegetables&Melons" = "#bad80a")
+cropgroup.col.dark <- cropgroup.col
+levels(cropgroup.col.dark) <- c("#fff100", "#ff8c00", "#e81123",
+                        "#ec008c", "#68217a", "#00188f", "#00bcf2", "#00b294", "#009e49", "#bad80a")
+cropgroup.col <- as.character(cropgroup.col)
+cropgroup.col.dark <- as.character(cropgroup.col.dark)
+
+countcountryai <- heatmap_cropcountrybar %>%
+  group_by(ISO3) %>%
+  summarize(countcountryai = min(countcountryai))
+
+aibycrop <- heatmap_cropcountrybar %>%
+  group_by(name_crop_earthstat) %>%
+  summarize(countcropai = min(countcropai), sumcropai = sum(summass)) %>%
+  arrange(desc(sumcropai))
+aibycrop <- left_join(data.frame(name_crop_earthstat = colnames(mass.matrix)),
+                      aibycrop,
+                      by = "name_crop_earthstat")
+
+# order countries by number of transplants averaged over years
+aibycountry = heatmap_cropcountrybar %>% 
+  group_by(ISO3) %>%
+  summarise(sumcountryai = sum(summass), countcountryai = min(countcountryai)) %>%
+  arrange(desc(sumcountryai))
+# do a left join to make sure that the countries are in the correct order
+aibycountry <- left_join(data.frame(ISO3 = rownames(mass.matrix)),
+                               aibycountry,
+                               by = "ISO3")
+#aibycountry <- aibycountry$countcountryai
+
+
+
+# install devtools if you don't have it already
+#install.packages("devtools")
+# install the development version of superheat
+#devtools::install_github("rlbarter/superheat")
+library(superheat)
+library(RColorBrewer)
+p <- superheat(as.matrix(mass.matrix),
+          
+          # set heatmap color map
+          heat.pal = brewer.pal(5, "BuPu"),
+          heat.na.col = "white",
+          
+          # order rows in mass applied desc
+          order.rows = order(aibycountry$sumcountryai),
+          
+          # order cols in mass applied desc
+          order.cols = order(aibycrop$sumcropai),
+          
+           # grid line colors
+          grid.vline.col = "white",
+          grid.hline.col = "white",
+          
+          #right plot: pesticide count by country
+          yr = aibycountry$countcountryai,
+          yr.plot.type = "bar",
+          yr.axis.name = "country pesticide count",
+          yr.axis.size = 20,
+          yr.axis.name.size = 20,
+          yr.plot.size = 0.2,
+          yr.bar.col = region.col.dark,
+          yr.obs.col = region.col,
+          
+          
+          # top plot: pesticide count by crop
+          yt = aibycrop$countcropai,
+          yt.plot.type = "bar",
+          yt.axis.name = "crop pesticide count",
+          yt.axis.size = 20,
+          yt.axis.name.size = 20,
+          yt.plot.size = 0.2,
+          yt.bar.col = adjustcolor(cropgroup.col, alpha.f = 0.3),
+          yt.obs.col = adjustcolor(cropgroup.col, alpha.f = 0.3),
+          
+           # left labels
+          left.label.size = 0.05,
+          left.label.text.size = 6,
+          left.label.col = adjustcolor(region.col, alpha.f = 0.3),
+          
+          # bottom labels
+          bottom.label.size = 0.2,
+          bottom.label.text.size = 6,
+          bottom.label.text.angle = 90,
+          bottom.label.col = adjustcolor(cropgroup.col, alpha.f = 0.1),
+          bottom.label.text.alignment = "right",
+          
+          # legend position
+          legend.vspace = 0.02
+          )
+
+p        
+ggsave("20220317heatdoseaggreate.png", p$plot, width = 20, height = 20, limitsize = FALSE)
+```
+
+
+#heatmap for crop-country kg/ha or summass from aggregating dataset by indication
+```{r}
+library(knitr)
+library(dplyr)
+library(DT)
+library(reshape2)
+
+
+# [1] "FUNGICIDES-ACTIV"        "GROWTH-REGULATORS-ACTIV" "HERBICIDES-ACTIV"        "INSECTICIDES-ACTIV"      "OTHERS-ACTIV"            "RODENTICIDES-ACTIV" 
+indication <- "FUNGICIDES-ACTIV"
+summary_massarea <- input_caschem %>%
+  group_by(name_country, name_crop_earthstat, name_region.y, name_cropgroup, name_activeindication) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  group_by(name_country, name_crop_earthstat, name_region.y, name_cropgroup, name_activeindication, casrn_chemical, summass) %>%
+  summarize(count = n()) %>%
+  filter(!is.na(name_region.y))
+
+#select top mass 20 countries
+countrymass <- summary_massarea %>%
+  filter(name_activeindication == indication)%>%
+  group_by(name_country) %>%
+  summarize(countrymass = sum(summass)) %>%
+  arrange(desc(countrymass)) %>%
+  slice_head(n = 20)
+#select top mass 20 crops
+cropmass <- summary_massarea %>%
+  filter(name_activeindication == indication) %>%
+  group_by(name_crop_earthstat) %>%
+  summarize(cropmass = sum(summass)) %>%
+  arrange(desc(cropmass)) %>%
+  slice_head(n = 20)
+
+#exclude forage, central caribbean
+summary_wdhaiso <- summary_massarea %>%
+  filter(name_country != "CENTRAL AMERICA-CARIBBEAN") %>%
+  filter(name_activeindication == indication) %>%
+  left_join(harmonization_countryiso, by = c("name_country" = "name_country")) 
+
+heatmap_cropcountrybar <- summary_wdhaiso %>%
+  filter(name_cropgroup != "Forage") %>%
+  group_by(name_country) %>%
+  mutate(countcountryai = n_distinct(casrn_chemical)) %>%
+  ungroup() %>%
+  group_by(name_crop_earthstat) %>%
+  mutate(countcropai = n_distinct(casrn_chemical)) %>%
+  group_by(ISO3, name_crop_earthstat, name_region.y, name_cropgroup, countcountryai, countcropai, name_country) %>%
+  summarize(summass = sum(summass)) %>%
+  ungroup()%>%
+  filter(name_country %in% countrymass$name_country) %>%
+  filter(name_crop_earthstat %in% cropmass$name_crop_earthstat)
+
+
+mass.matrix <- acast(heatmap_cropcountrybar,
+                      ISO3 ~ name_crop_earthstat, 
+                      value.var = "summass")
+# view the first 6 rows and columns
+kable(head(mass.matrix[, 1:6]))
+
+# idenitfy the region of each country
+# define a colour for each region
+country.region <- heatmap_cropcountrybar %>% 
+  filter(ISO3 %in% rownames(mass.matrix)) %>%
+  select(name_region.y, ISO3) %>%
+  distinct(name_region.y, ISO3) %>%
+  arrange(ISO3)
+#unique(country.region$name_region)
+# define a colour for each region
+
+unique(summary_wdha$name_region.y)
+region.col = factor(country.region$name_region.y)
+levels(region.col) <- c("Africa" = "#e6f5c9", "South America" = "#fdcdac", "Oceania" = "#f4cae4", "Europe" = "#cbd5e8",
+                        "Asia" = "#b3e2cd", "North America" = "#FFF2AE")
+region.col.dark <- region.col
+levels(region.col.dark) <- c("Africa" = "#a6d854", "South America"= "#fc8d62", "Oceania" = "#f4cae4", "Europe" = "#8da0cb",
+                            "Asia"= "#66c2a5", "North America"= "#FFF2AE")
+#levels(region.col) <- c("ASIA/PACIFIC" ="#e6f5c9" , "LATIN-AMERICA" = "#fdcdac", "EUROPE/TAMECIS" = "#cbd5e8",
+                       #"NORTH-AMERICA" =  "#b3e2cd")
+#region.col.dark <- region.col
+#levels(region.col.dark) <- c("ASIA/PACIFIC"= "#a6d854","LATIN-AMERICA" ="#fc8d62" ,"EUROPE/TAMECIS" = "#8da0cb",
+                           # "NORTH-AMERICA" = "#66c2a5")
+region.col <- as.character(region.col)
+region.col.dark <- as.character(region.col.dark)
+
+unique(input_source$name_cropgroup)
+# idenitfy the cropclass of each crop
+# define a colour for each cropclass
+crop.cropclass <- heatmap_cropcountrybar %>% 
+  filter(name_crop_earthstat %in% colnames(mass.matrix)) %>%
+  select(name_crop_earthstat, name_cropgroup) %>%
+  distinct(name_crop_earthstat, name_cropgroup) %>%
+  arrange(name_crop_earthstat)
+# define a colour for each region
+cropgroup.col <- factor(crop.cropclass$name_cropgroup)
+levels(cropgroup.col) <- c("Treenuts" = "#fff100", "Fruit" = "#ff8c00", "OtherCrops" = "#e81123",
+                         "Cereals" = "#ec008c", "Roots&Tubers" = "#68217a", "Pulses" = "#00188f", "Oilcrops" = "#00bcf2", "SugarCrops" = "#00b294", "Fiber" = "#009e49",  "Vegetables&Melons" = "#bad80a")
+
+cropgroup.col <- as.character(cropgroup.col)
+#cropgroup.col.dark <- as.character(cropgroup.col.dark)
+
+countcountryai <- heatmap_cropcountrybar %>%
+  group_by(ISO3) %>%
+  summarize(countcountryai = min(countcountryai))
+
+aibycrop <- heatmap_cropcountrybar %>%
+  group_by(name_crop_earthstat) %>%
+  summarize(countcropai = min(countcropai), sumcropai = sum(summass)) %>%
+  arrange(desc(sumcropai))
+aibycrop <- left_join(data.frame(name_crop_earthstat = colnames(mass.matrix)),
+                      aibycrop,
+                      by = "name_crop_earthstat")
+
+# order countries by number of transplants averaged over years
+aibycountry = heatmap_cropcountrybar %>% 
+  group_by(ISO3) %>%
+  summarise(sumcountryai = sum(summass), countcountryai = min(countcountryai)) %>%
+  arrange(desc(sumcountryai))
+# do a left join to make sure that the countries are in the correct order
+aibycountry <- left_join(data.frame(ISO3 = rownames(mass.matrix)),
+                               aibycountry,
+                               by = "ISO3")
+#aibycountry <- aibycountry$countcountryai
+
+
+
+# install devtools if you don't have it already
+#install.packages("devtools")
+# install the development version of superheat
+#devtools::install_github("rlbarter/superheat")
+library(superheat)
+library(RColorBrewer)
+p <- superheat(as.matrix(mass.matrix),
+          
+          # set heatmap color map
+          heat.pal = brewer.pal(5, "BuPu"),
+          heat.na.col = "white",
+          
+          # order rows in mass applied desc
+          order.rows = order(aibycountry$sumcountryai),
+          
+          # order cols in mass applied desc
+          order.cols = order(aibycrop$sumcropai),
+          
+           # grid line colors
+          grid.vline.col = "white",
+          grid.hline.col = "white",
+          
+          #right plot: pesticide count by country
+          yr = aibycountry$countcountryai,
+          yr.plot.type = "bar",
+          yr.axis.name = "country pesticide count",
+          yr.axis.size = 10,
+          yr.axis.name.size = 10,
+          yr.plot.size = 0.1,
+          yr.bar.col = region.col,
+          yr.obs.col = region.col,
+          
+          
+          # top plot: pesticide count by crop
+          yt = aibycrop$countcropai,
+          yt.plot.type = "bar",
+          yt.axis.name = "crop pesticide count",
+          yt.axis.size = 10,
+          yt.axis.name.size = 10,
+          yt.plot.size = 0.1,
+          yt.bar.col = adjustcolor(cropgroup.col, alpha.f = 0.3),
+          yt.obs.col = adjustcolor(cropgroup.col, alpha.f = 0.3),
+          
+           # left labels
+          left.label.size = 0.025,
+          left.label.text.size = 6,
+          left.label.col = adjustcolor(region.col, alpha.f = 0.3),
+          
+          # bottom labels
+          bottom.label.size = 0.2,
+          bottom.label.text.size = 4,
+          bottom.label.text.angle = 90,
+          bottom.label.col = adjustcolor(cropgroup.col, alpha.f = 0.1),
+          bottom.label.text.alignment = "right",
+          
+          # legend position
+          legend.vspace = 0.01
+          )
+
+p        
+ggsave("20221007heatdoseaggreate_fungicides.png", p$plot, width = 10, height = 10, limitsize = FALSE)
+```
+
+
+# major country-crop pareto 1
+```{r}
+crop <- "soybean"
+country <- "Argentina"
+pareto_cropcountry <- summary_wdhaother %>%
+  ungroup() %>%
+  filter(name_country == country) %>%
+  filter(name_crop_earthstat == crop)
+
+pareto_cropcountry <- arrange(pareto_cropcountry, desc(summass)) %>%
+  mutate(
+    cumsum = cumsum(summass),
+    freq = round(summass/sum(summass), 3),
+    cum_freq = cumsum(freq),
+    summass = round(summass, 2)
+  )
+
+pareto_cropcountry <- pareto_cropcountry %>%
+  filter(cum_freq <= 0.95)
+
+#save parameters
+png("pareto.png", width = 20, height = 20, units = "cm", res = 500)
+def_par <- par()
+#new margins
+options(scipen=0)
+par(mar = c(5,5,3,5)+0.1)
+# plot bars, pc will hold x values for bars
+pc = barplot(pareto_cropcountry$summass,
+             width = 1, space = 0.2, border = NA, axes = F,
+             ylim = c(0, 1.05 * max(pareto_cropcountry$summass, na.rm = TRUE)),
+             ylab = "mass, kkg", cex.names = 0.7,
+             xlab = "", las = 2,
+             names.arg = pareto_cropcountry$casrn_chemical,
+             main = "")
+#anotate left axis
+axis(side = 2, at = c(0, pareto_cropcountry$summass), las = 1, col.axis = "grey62", col = "grey62", tick = T, ces.axis = 0.8, label=c(0, format(pareto_cropcountry$summass,scientific=TRUE, digits = 2)))
+#frame plot
+box(col = "grey62")
+#cumulative freq lines
+px <- pareto_cropcountry$cum_freq * max(pareto_cropcountry$summass, na.rm = T)
+lines(pc, px, type = "b", cex = 0.7, pch = 19, col = "cyan4")
+#annotate right axis
+axis(side = 4, at = c(0, px), labels = paste(c(0, round(pareto_cropcountry$cum_freq * 100)), "%", sep = ""), las = 1, col.axis = "grey62", col = "cyan4", cex.axis = 0.8, col.axis = "cyan4")
+#restoring default parameter
+par(def_par)
+dev.off()
+
+
+```
+
+
+#heatmap for crop-chemical
+```{r}
+library(knitr)
+library(dplyr)
+library(DT)
+library(reshape2)
+
+#select top mass 40 countries
+chemicalmass <- summary_wdha %>%
+  group_by(casrn_chemical) %>%
+  summarize(chemmass = sum(summass)) %>%
+  arrange(desc(chemmass)) %>%
+  slice_head(n = 50)
+#select top mass 50 crops
+cropmass <- summary_wdha %>%
+  group_by(name_crop_earthstat) %>%
+  summarize(cropmass = sum(summass)) %>%
+  arrange(desc(cropmass)) %>%
+  slice_head(n = 50)
+
+#exclude forage, central caribbean
+summary_wdhaotheriso <- summary_wdha %>%
+  filter(name_country != "CENTRAL AMERICA-CARIBBEAN") %>%
+  left_join(harmonization_countryiso, by = c("name_country" = "name_country")) 
+
+heatmap_cropchemicalbar <- summary_wdhaotheriso %>%
+  filter(name_cropgroup != "Forage") %>%
+  group_by(casrn_chemical) %>%
+  mutate(countchemcountry = n_distinct(name_country)) %>%
+  ungroup() %>%
+  group_by(name_crop_earthstat) %>%
+  mutate(countcropcountry = n_distinct(name_country)) %>%
+  group_by(name_crop_earthstat, casrn_chemical, name_cropgroup, countchemcountry, countcropcountry, name_chemclass) %>%
+  summarize(summass = sum(summass)) %>%
+  ungroup()%>%
+  filter(casrn_chemical %in% chemicalmass$casrn_chemical) %>%
+  filter(name_crop_earthstat %in% cropmass$name_crop_earthstat)
+
+n_distinct(heatmap_cropchemicalbar$name_chemclass)
+
+mass.matrix <- acast(heatmap_cropchemicalbar,
+                      casrn_chemical ~ name_crop_earthstat, 
+                      value.var = "summass")
+# view the first 6 rows and columns
+kable(head(mass.matrix[, 1:6]))
+
+# idenitfy the region of each country
+# define a colour for each region
+# country.region <- heatmap_cropcountrybar %>% 
+#   filter(ISO3 %in% rownames(mass.matrix)) %>%
+#   select(name_region, ISO3) %>%
+#   distinct(name_region, ISO3) %>%
+#   arrange(ISO3)
+# define a colour for each region
+# region.col <- factor(country.region$name_region)
+# levels(region.col) <- c("#e6f5c9", "#fdcdac", "#cbd5e8",
+#                         "#b3e2cd")
+# region.col.dark <- region.col
+# levels(region.col.dark) <- c("#a6d854", "#fc8d62", "#8da0cb",
+#                              "#66c2a5")
+# region.col <- as.character(region.col)
+# region.col.dark <- as.character(region.col.dark)
+
+
+# idenitfy the cropclass of each crop
+# define a colour for each cropclass
+crop.cropclass <- heatmap_cropchemicalbar %>% 
+  filter(name_crop_earthstat %in% colnames(mass.matrix)) %>%
+  select(name_crop_earthstat, name_cropgroup) %>%
+  distinct(name_crop_earthstat, name_cropgroup) %>%
+  arrange(name_crop_earthstat)
+# define a colour for each region
+cropgroup.col <- factor(crop.cropclass$name_cropgroup)
+levels(cropgroup.col) <- c("#fff100", "#ff8c00", "#e81123",
+                        "#ec008c", "#68217a", "#00188f", "#00bcf2", "#00b294", "#009e49", "#bad80a")
+cropgroup.col.dark <- cropgroup.col
+levels(cropgroup.col.dark) <- c("#fff100", "#ff8c00", "#e81123",
+                        "#ec008c", "#68217a", "#00188f", "#00bcf2", "#00b294", "#009e49", "#bad80a")
+cropgroup.col <- as.character(cropgroup.col)
+cropgroup.col.dark <- as.character(cropgroup.col.dark)
+
+# countcountryai <- heatmap_cropcountrybar %>%
+#   group_by(ISO3) %>%
+#   summarize(countcountryai = min(countcountryai))
+
+aibycrop <- heatmap_cropchemicalbar %>%
+  group_by(name_crop_earthstat) %>%
+  summarize(countcropcountry = min(countcropcountry), sumcropcountry = sum(summass)) %>%
+  arrange(desc(sumcropcountry))
+aibycrop <- left_join(data.frame(name_crop_earthstat = colnames(mass.matrix)),
+                      aibycrop,
+                      by = "name_crop_earthstat")
+
+# order countries by number of transplants averaged over years
+aibycountry = heatmap_cropchemicalbar %>% 
+  group_by(casrn_chemical) %>%
+  summarise(sumchemicalcountry = sum(summass), countchemicalcountry = min(countchemcountry)) %>%
+  arrange(desc(sumchemicalcountry))
+# do a left join to make sure that the countries are in the correct order
+aibycountry <- left_join(data.frame(casrn_chemical = rownames(mass.matrix)),
+                               aibycountry,
+                               by = "casrn_chemical")
+#aibycountry <- aibycountry$countcountryai
+
+
+
+# install devtools if you don't have it already
+#install.packages("devtools")
+# install the development version of superheat
+#devtools::install_github("rlbarter/superheat")
+library(superheat)
+library(RColorBrewer)
+p <- superheat(as.matrix(mass.matrix),
+          
+          # set heatmap color map
+          heat.pal = brewer.pal(5, "BuPu"),
+          heat.na.col = "white",
+          
+          # order rows in mass applied desc
+          order.rows = order(aibycountry$sumchemicalcountry),
+          
+          # order cols in mass applied desc
+          order.cols = order(aibycrop$sumcropcountry),
+          
+           # grid line colors
+          grid.vline.col = "white",
+          grid.hline.col = "white",
+          
+          #right plot: country count by chemical
+          yr = aibycountry$countchemicalcountry,
+          yr.plot.type = "bar",
+          yr.axis.name = "chemical country count",
+          yr.axis.size = 20,
+          yr.axis.name.size = 20,
+          yr.plot.size = 0.2,
+          #yr.bar.col = region.col.dark,
+          #yr.obs.col = region.col,
+          
+          
+          # top plot: country count by crop
+          yt = aibycrop$countcropcountry,
+          yt.plot.type = "bar",
+          yt.axis.name = "crop country count",
+          yt.axis.size = 20,
+          yt.axis.name.size = 20,
+          yt.plot.size = 0.2,
+          yt.bar.col = adjustcolor(cropgroup.col, alpha.f = 0.3),
+          yt.obs.col = adjustcolor(cropgroup.col, alpha.f = 0.3),
+          
+           # left labels
+          left.label.size = 0.05,
+          left.label.text.size = 6,
+          #left.label.col = adjustcolor(region.col, alpha.f = 0.3),
+          
+          # bottom labels
+          bottom.label.size = 0.2,
+          bottom.label.text.size = 6,
+          bottom.label.text.angle = 90,
+          bottom.label.col = adjustcolor(cropgroup.col, alpha.f = 0.1),
+          bottom.label.text.alignment = "right",
+          
+          # legend position
+          legend.vspace = 0.02
+          )
+
+p        
+ggsave("20221007heat_chemcrop.png", p$plot, width = 20, height = 20, limitsize = FALSE)
+```
+
+
+#heatmap for country-chemical per crop group
+```{r}
+library(knitr)
+library(dplyr)
+library(DT)
+library(reshape2)
+
+cropgroup <- "Vegetables&Melons"
+summary_wdhaother_cropgroup <- summary_wdhaother %>%
+  filter(name_cropgroup == cropgroup)
+#select top mass 50 chemicals 
+chemicalmass <- summary_wdhaother_cropgroup %>%
+  group_by(casrn_chemical) %>%
+  summarize(chemmass = sum(summass)) %>%
+  arrange(desc(chemmass)) %>%
+  slice_head(n = 50)
+#select top mass 50 countries
+countrymass <- summary_wdhaother_cropgroup %>%
+  group_by(name_country) %>%
+  summarize(countrymass = sum(wd)) %>%
+  arrange(desc(countrymass)) %>%
+  slice_head(n = 50)
+
+#exclude forage, central caribbean
+summary_wdhaotheriso <- summary_wdhaother_cropgroup %>%
+  filter(name_country != "CENTRAL AMERICA-CARIBBEAN") %>%
+  left_join(harmonization_countryiso, by = c("name_country" = "name_country")) 
+
+heatmap_countrychemicalbar <- summary_wdhaotheriso %>%
+  filter(name_cropgroup != "Forage") %>%
+  group_by(casrn_chemical) %>%
+  mutate(countchemcrop = n_distinct(name_crop_earthstat)) %>%
+  ungroup() %>%
+  group_by(name_country) %>%
+  mutate(countcountrycrop = n_distinct(name_crop_earthstat)) %>%
+  group_by(name_region, casrn_chemical, name_country, ISO3, countchemcrop, countcountrycrop, name_chemclass) %>%
+  summarize(summass = sum(summass)) %>%
+  ungroup()%>%
+  filter(casrn_chemical %in% chemicalmass$casrn_chemical) %>%
+  filter(name_country %in% countrymass$name_country)
+
+#n_distinct(heatmap_cropchemicalbar$name_chemclass)
+
+mass.matrix <- acast(heatmap_countrychemicalbar,
+                      casrn_chemical ~ ISO3, 
+                      value.var = "summass")
+# view the first 6 rows and columns
+kable(head(mass.matrix[, 1:6]))
+
+ #idenitfy the region of each country
+ #define a colour for each region
+ country.region <- heatmap_countrychemicalbar %>% 
+   filter(ISO3 %in% colnames(mass.matrix)) %>%
+   select(name_region, ISO3) %>%
+   distinct(name_region, ISO3) %>%
+   arrange(ISO3)
+# define a colour for each region
+ region.col <- factor(country.region$name_region)
+ levels(region.col) <- c("#e6f5c9", "#fdcdac", "#cbd5e8",
+                         "#b3e2cd")
+ region.col.dark <- region.col
+ levels(region.col.dark) <- c("#a6d854", "#fc8d62", "#8da0cb",                              "#66c2a5")
+ region.col <- as.character(region.col)
+ region.col.dark <- as.character(region.col.dark)
+
+
+
+
+# countcountryai <- heatmap_cropcountrybar %>%
+#   group_by(ISO3) %>%
+#   summarize(countcountryai = min(countcountryai))
+
+
+# order countries by number of transplants averaged over years
+aibychemical = heatmap_countrychemicalbar %>% 
+  group_by(casrn_chemical) %>%
+  summarise(sumchemicalcountry = sum(summass), countchemcrop = min(countchemcrop)) %>%
+  arrange(desc(sumchemicalcountry))
+# do a left join to make sure that the countries are in the correct order
+aibychemical <- left_join(data.frame(casrn_chemical = rownames(mass.matrix)),
+                               aibychemical,
+                               by = "casrn_chemical")
+
+# order countries by number of transplants averaged over years
+aibycountry = heatmap_countrychemicalbar %>% 
+  group_by(ISO3) %>%
+  summarise(sumchemicalcountry = sum(summass), countcountrycrop = min(countcountrycrop)) %>%
+  arrange(desc(sumchemicalcountry))
+# do a left join to make sure that the countries are in the correct order
+aibycountry <- left_join(data.frame(ISO3 = colnames(mass.matrix)),
+                               aibycountry,
+                               by = "ISO3")
+#aibycountry <- aibycountry$countcountryai
+
+
+
+# install devtools if you don't have it already
+#install.packages("devtools")
+# install the development version of superheat
+#devtools::install_github("rlbarter/superheat")
+library(superheat)
+library(RColorBrewer)
+p <- superheat(as.matrix(mass.matrix),
+          
+          # set heatmap color map
+          heat.pal = brewer.pal(5, "BuPu"),
+          heat.na.col = "white",
+          
+          # order rows in mass applied desc
+          order.rows = order(aibychemical$sumchemicalcountry),
+          
+          # order cols in mass applied desc
+          order.cols = order(aibycountry$sumchemicalcountry),
+          
+           # grid line colors
+          grid.vline.col = "white",
+          grid.hline.col = "white",
+          
+          #right plot: country count by chemical
+          yr = aibychemical$countchemcrop,
+          yr.plot.type = "bar",
+          yr.axis.name = "chemical crop count",
+          yr.axis.size = 20,
+          yr.axis.name.size = 20,
+          yr.plot.size = 0.2,
+          #yr.bar.col = region.col.dark,
+          #yr.obs.col = region.col,
+          
+          
+          # top plot: country count by crop
+          yt = aibycountry$countcountrycrop,
+          yt.plot.type = "bar",
+          yt.axis.name = "country crop count",
+          yt.axis.size = 20,
+          yt.axis.name.size = 20,
+          yt.plot.size = 0.2,
+          yt.bar.col = adjustcolor(region.col, alpha.f = 0.3),
+          yt.obs.col = adjustcolor(region.col, alpha.f = 0.3),
+          
+           # left labels
+          left.label.size = 0.05,
+          left.label.text.size = 6,
+          #left.label.col = adjustcolor(region.col, alpha.f = 0.3),
+          
+          # bottom labels
+          bottom.label.size = 0.2,
+          bottom.label.text.size = 6,
+          bottom.label.text.angle = 90,
+          bottom.label.col = adjustcolor(region.col, alpha.f = 0.3),
+          bottom.label.text.alignment = "right",
+          
+          # legend position
+          legend.vspace = 0.02
+          )
+
+p        
+ggsave("220427heat_chemcountry_veg.png", p$plot, width = 20, height = 20, limitsize = FALSE)
+```
+
+
+# major country-crop pareto 2
+```{r}
+crop <- "soybean"
+country <- "Brazil"
+pareto_cropcountry <- summary_wdhaother %>%
+  ungroup() %>%
+  filter(name_country == country) %>%
+  filter(name_crop_earthstat == crop)
+
+pareto_cropcountry <- pareto_cropcountry[order(pareto_cropcountry$summass, decreasing = TRUE),]
+pareto_cropcountry <- pareto_cropcountry %>%
+  slice_head(n = 37)
+pareto_cropcountry$casrn_chemical <- factor(pareto_cropcountry$casrn_chemical, levels = pareto_cropcountry$casrn_chemical)
+pareto_cropcountry$cumulative <- cumsum(pareto_cropcountry$summass)
+pareto_cropcountry$cumulative <- 100 * pareto_cropcountry$cumulative/tail(pareto_cropcountry$cumulative, n = 1)
+scaleRight <- tail(pareto_cropcountry$cumulative, n =1)/head(pareto_cropcountry$summass, n = 1)
+
+ggplot(pareto_cropcountry, aes(x = pareto_cropcountry$casrn_chemical)) +
+  geom_bar(aes(y = pareto_cropcountry$summass), fill = "deepskyblue4", stat = "identity") +
+  geom_path(aes(y = pareto_cropcountry$cumulative/scaleRight, group = 1), color = "red", size = 0.9) +
+  geom_point(aes(y = pareto_cropcountry$cumulative/scaleRight, group = 1), color = "red") +
+  scale_y_continuous(sec.axis = sec_axis(~.*scaleRight, name = "cumulative%")) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6)) +
+  labs(x = "active ingredient",
+       y = "summass, kkg")
+ggsave("pareto2.png", width = 20, height = 20, units = "cm")
+```
+
+```{r}
+summary_masschemclass <- input_app %>%
+  group_by(name_chemclass1) %>%
+  summarize(summass = sum(applied_mass_kkg), sumarea = sum(treated_area_kha), count = n())
+```
+
+```{r}
+crop <- "soybean"
+country <- "Argentina"
+pareto_cropcountry <- summary_wdhaother %>%
+  ungroup() %>%
+  filter(name_country == country) %>%
+  filter(name_crop_earthstat == crop)
+
+pareto_cropcountry <- arrange(pareto_cropcountry, desc(summass)) %>%
+  mutate(
+    cumsum = cumsum(summass),
+    freq = round(summass/sum(summass), 3),
+    cum_freq = cumsum(freq),
+    summass = round(summass, 2)
+  )
+
+pareto_cropcountry <- pareto_cropcountry %>%
+  filter(cum_freq <= 0.95)
+
+#save parameters
+png("pareto.png", width = 20, height = 20, units = "cm", res = 500)
+def_par <- par()
+#new margins
+options(scipen=0)
+par(mar = c(5,5,3,5)+0.1)
+# plot bars, pc will hold x values for bars
+pc = barplot(pareto_cropcountry$summass,
+             width = 1, space = 0.2, border = NA, axes = F,
+             ylim = c(0, 1.05 * max(pareto_cropcountry$summass, na.rm = TRUE)),
+             ylab = "mass, kkg", cex.names = 0.7,
+             xlab = "", las = 2,
+             names.arg = pareto_cropcountry$casrn_chemical,
+             main = "")
+#anotate left axis
+axis(side = 2, at = c(0, pareto_cropcountry$summass), las = 1, col.axis = "grey62", col = "grey62", tick = T, ces.axis = 0.8, label=c(0, format(pareto_cropcountry$summass,scientific=TRUE, digits = 2)))
+#frame plot
+box(col = "grey62")
+#cumulative freq lines
+px <- pareto_cropcountry$cum_freq * max(pareto_cropcountry$summass, na.rm = T)
+lines(pc, px, type = "b", cex = 0.7, pch = 19, col = "cyan4")
+#annotate right axis
+axis(side = 4, at = c(0, px), labels = paste(c(0, round(pareto_cropcountry$cum_freq * 100)), "%", sep = ""), las = 1, col.axis = "grey62", col = "cyan4", cex.axis = 0.8, col.axis = "cyan4")
+#restoring default parameter
+par(def_par)
+dev.off()
+```
+
+
+#major top 20 chemical pareto
+```{r}
+chemicalmass <- input_sourceother %>%
+  group_by(casrn_chemical, name_ai) %>%
+  summarize(chemmass = sum(applied_mass_kkg)) %>%
+  arrange(desc(chemmass))
+
+pareto_chemical <- chemicalmass
+
+pareto_chemical <- arrange(chemicalmass, desc(chemmass)) %>%
+  mutate(
+    cumsum = cumsum(chemmass),
+    freq = round(chemmass/sum(chemmass), 3),
+    cum_freq = cumsum(freq),
+    summass = round(chemmass, 2)
+  )
+
+pareto_chemical20 <- pareto_chemical %>%
+  filter(cum_freq <= 0.655)
+
+#save parameters
+png("220427pareto.png", width = 20, height = 20, units = "cm", res = 500)
+def_par <- par()
+#new margins
+options(scipen=0)
+par(mar = c(5,5,3,5)+0.1)
+# plot bars, pc will hold x values for bars
+pc = barplot(pareto_chemical20$summass,
+             width = 1, space = 0.2, border = NA, axes = F,
+             ylim = c(0, 1.05 * max(pareto_chemical20$summass, na.rm = TRUE)),
+             ylab = "mass, kkg", cex.names = 0.7,
+             xlab = "", las = 2,
+             names.arg = pareto_chemical20$casrn_chemical,
+             main = "")
+#anotate left axis
+axis(side = 2, at = c(0, pareto_chemical20$summass), las = 1, col.axis = "grey62", col = "grey62", tick = T, ces.axis = 0.8, label=c(0, format(pareto_chemical20$summass,scientific=TRUE, digits = 2)))
+#frame plot
+box(col = "grey62")
+#cumulative freq lines
+px <- pareto_chemical20$cum_freq * max(pareto_chemical20$summass, na.rm = T)
+lines(pc, px, type = "b", cex = 0.7, pch = 19, col = "cyan4")
+#annotate right axis
+axis(side = 4, at = c(0, px), labels = paste(c(0, round(pareto_chemical20$cum_freq * 100)), "%", sep = ""), las = 1, col.axis = "grey62", col = "cyan4", cex.axis = 0.8, col.axis = "cyan4")
+#restoring default parameter
+par(def_par)
+dev.off()
+
+
+```
+
+
+
+
+```{r}
+chemicalcas <- read_xlsx("C:/me/Database/harmonization/chemicalcas.xlsx", sheet = 1)
+chemicalcas_c <- chemicalcas %>%
+  group_by(name_activegroup) %>%
+  summarize(n_distinct(name_chemclass))
+  
+```
+
+```{r}
+n_distinct(harmonization_casrn$name_chemclass)
+unique(harmonization_casrn$name_chemclass)
+```
+
+```{r}
+input_moa <- input_cas %>%
+  group_by(name_moa, name_chemclass) %>%
+  summarize(summass = sum(applied_mass_kkg), sumarea = sum(treated_area_kha), count = n())
+
+write.csv(input_moa, "input_moa.csv")
+
+input_moagroup <- input_moa %>%
+  left_join(harmonization_moa, by = c("name_moa" = "name_moa")) %>%
+  group_by(name_moagroup) %>%
+  summarize(summass = sum(summass), sumarea = sum(sumarea), count = sum(count))
+```
+
+
+# crop-chemical dose on area
+```{r}
+#weighted dose calculation
+summary_wdhacc <- input_source %>%
+  group_by(name_crop_earthstat, casrn_chemical) %>%
+  mutate(sumarea = sum(treated_area_kha)) %>%
+  mutate(areaperc = treated_area_kha/sumarea, variabilityweight = areaperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_crop_earthstat, casrn_chemical) %>%
+  summarize(wd = sum(normalizedweight * dose))
+
+
+input_wdhacc <- input_source %>%
+  group_by(name_crop_earthstat, casrn_chemical) %>%
+  mutate(sumarea = sum(treated_area_kha)) %>%
+  mutate(areaperc = treated_area_kha/sumarea, variabilityweight = areaperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_crop_earthstat, casrn_chemical) %>%
+  mutate(wd = sum(normalizedweight * dose)) %>%
+  mutate(doseratio = dose/wd)
+
+input_wdharatiocc <- input_wdhacc %>%
+  filter(doseratio > 10) %>%
+  #filter(doseratio > 10 | doseratio < 0.1) %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  summarize(count = n())
+input_wdharatiocc_s <- input_wdharatiocc %>%
+  group_by(casrn_chemical) %>%
+  summarize(count = n())
+sum(input_wdharatiocc$count)
+input_wdhacountrycc <- input_wdratiocc %>%
+  group_by(name_country) %>%
+  summarize(count = n())
+  
+```
+
+```{r}
+dose_1to10 <- input_source %>%
+  filter(dose > 1 & dose < 10)
+```
+
+# crop-country dose for other on area
+```{r}
+#weighted dose calculation
+summary_wdhacropcountryother <- input_sourceother %>%
+  group_by(name_crop_earthstat, name_country) %>%
+  mutate(sumarea = sum(treated_area_kha)) %>%
+  mutate(areaperc = treated_area_kha/sumarea, variabilityweight = areaperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country) %>%
+  mutate(countcountryai = n_distinct(casrn_chemical)) %>%
+  ungroup() %>%
+  group_by(name_crop_earthstat) %>%
+  mutate(countcropai = n_distinct(casrn_chemical)) %>%
+  ungroup() %>%
+  group_by(name_crop_earthstat, name_cropgroup, name_country, name_region, countcountryai, countcropai) %>%
+  #summarize(wd = sum(normalizedweight * dose))
+  summarize(wd = sum(applied_mass_kkg)/sum(treated_area_kha))
+
+
+input_wdhacropcountryother <- input_sourceother %>%
+  group_by(name_crop_earthstat, name_country) %>%
+  mutate(sumarea = sum(treated_area_kha)) %>%
+  mutate(areaperc = treated_area_kha/sumarea, variabilityweight = areaperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_crop_earthstat, name_country) %>%
+  mutate(wd = sum(normalizedweight * dose)) %>%
+  mutate(doseratio = dose/wd)
+
+input_wdharatiocropcountry <- input_wdhacropcountry %>%
+  filter(doseratio > 10) %>%
+  #filter(doseratio > 10 | doseratio < 0.1) %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  summarize(count = n())
+input_wdharatiocc_s <- input_wdharatiocc %>%
+  group_by(casrn_chemical) %>%
+  summarize(count = n())
+sum(input_wdharatiocc$count)
+input_wdhacountrycc <- input_wdratiocc %>%
+  group_by(name_country) %>%
+  summarize(count = n())
+  
+```
+
+# crop-country dose for other on area by indication
+```{r}
+#weighted dose calculation
+summary_wdhacropcountryotherindi <- input_sourceother %>%
+  group_by(name_crop_earthstat, name_country, name_indication) %>%
+  mutate(sumarea = sum(treated_area_kha)) %>%
+  mutate(areaperc = treated_area_kha/sumarea, variabilityweight = areaperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_indication) %>%
+  mutate(countcountryai = n_distinct(casrn_chemical)) %>%
+  ungroup() %>%
+  group_by(name_crop_earthstat, name_indication) %>%
+  mutate(countcropai = n_distinct(casrn_chemical)) %>%
+  ungroup() %>%
+  group_by(name_crop_earthstat, name_cropgroup, name_country, name_region, countcountryai, countcropai, name_indication) %>%
+  summarize(wd = sum(applied_mass_kkg)/sum(treated_area_kha))
+  #summarize(wd = sum(normalizedweight * dose)) 
+```
+
+
+# dose vs temperature
+```{r}
+annualtemp <- read_xlsx("C:/me/Database/harmonization/harmonization_country.xlsx", sheet = 3)
+crop <- "onion"
+cropgroup <- "Cereals"
+chemical <- "100784-20-1"
+region <- "EUROPE/TAMECIS"
+indication <- "FUNGICIDES"
+crop_chemical <- summary_wdhaindication %>%
+  filter(wd <10) %>%
+  #filter(name_cropgroup == cropgroup) %>%
+  filter(name_indication == indication) %>%
+  #filter(name_crop_earthstat == crop) %>%
+  #filter(name_region == region) %>%
+  #filter(casrn_chemical == chemical) %>%
+  left_join(annualtemp, by ="name_country") %>%
+  arrange('annual temp') %>%
+  filter(!is.na(`annual precipitation mm`))
+
+crop_chemical_uni <- crop_chemical %>%
+  distinct(name_country, name_region, name_indication, wd, `annual temp`, `annual precipitation mm`)
+write.csv(crop_chemical_uni, "20220318crop_chemical_uni.csv")
+
+ fit <- lm(wd ~ `annual temp` + `annual precipitation mm`, data = crop_chemical)
+summary(fit)
+
+crop_chemical %>%
+  ggplot(aes(x = `annual temp`, y = wd, label=name_country)) + 
+  geom_point(aes(color = name_country), position = position_jitter(width = 0.75, seed = 123)) +
+  scale_y_log10()+
+  #stat_summary(fun.data=mean_cl_normal) + 
+  #geom_smooth(method='lm') +
+  geom_smooth() +
+  #geom_text(hjust=0, vjust=0, size = 1) +
+  #geom_mark_ellipse(aes(label=name_country, fill = name_country),
+                    #expand = unit(0.5,"mm"),
+                    #label.buffer = unit(-5, 'mm'), label.fill=NA,con.cap = 0, position = position_jitter(width = 0.75, seed = 123)) +
+  theme(legend.position = "none")
+
+ggsave("crop_chemical_ellipse_euro.png")
+  #geom_smooth()
+```
+
+
+#crop-country-chemical-indication-app- stagegroup
+```{r}
+ccc_indicationappbbch <- input_cas %>%
+  group_by(name_crop_earthstat, name_country, name_ai, casrn_chemical, name_indication, name_refapp, name_stagegroup) %>%
+  summarize(mindose = min(dose_kgperha), maxdose = max(dose_kgperha), sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg) )
+
+ccc_indicationappbbch_f <- ccc_indicationappbbch %>%
+  filter(name_refapp != "Soil incorporation") %>%
+  filter(name_refapp != "Seed treatment") %>%
+  filter(name_stagegroup != "00 SEED-DRESSING") %>%
+  filter(name_stagegroup != "0 SOIL")
+```
+
+```{r}
+#weighted dose calculation
+summary_wdhacountryother <- input_sourceother %>%
+  group_by(name_country, name_indication) %>%
+  mutate(sumarea = sum(treated_area_kha)) %>%
+  mutate(areaperc = treated_area_kha/sumarea, variabilityweight = areaperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_indication) %>%
+  mutate(countcountryai = n_distinct(casrn_chemical)) %>%
+  ungroup() %>%
+  group_by(name_country, name_region, countcountryai, name_indication) %>%
+  summarize(wd = sum(normalizedweight * dose))
+
+country_temppreci <- summary_wdhacountryother %>%
+  filter(wd < 2) %>%
+  left_join(annualtemp, by = c("name_country" = "name_country")) %>%
+  filter(!is.na(`annual precipitation mm`))
+
+write.csv(country_temppreci, "country_temppreci.csv")
+
+country_temppreci %>%
+  filter(name_indication == "INSECTICIDES") %>%
+  ggplot(aes(x = latitude, y = wd, label=name_country)) + 
+  geom_point(aes(color = climate_zone), position = position_jitter(width = 0.75, seed = 123)) +
+  #scale_y_log10()+
+  #stat_summary(fun.data=mean_cl_normal) + 
+  #geom_smooth(method='lm') +
+  geom_smooth() #+
+  #geom_text(hjust=0, vjust=0, size = 1) +
+  #geom_mark_ellipse(aes(label=name_country, fill = name_country),
+                    #expand = unit(0.5,"mm"),
+                    #label.buffer = unit(-5, 'mm'), label.fill=NA,con.cap = 0, position = position_jitter(width = 0.75, seed = 123)) +
+  theme(legend.position = "none")
+
+  
+
+fit <- lm(wd ~ `minimum temp`  , data = country_temppreci)
+
+
+summary(fit)$r.squared
+
+str(summary(fit))
+```
+
+```{r}
+country_temppreci %>%
+  scatterplot3d(x = `annual temp`, y=`annual precipitation mm`, z=wd, color = name_region)
+
+
+temp <- country_temppreci$`annual temp`
+precip <- country_temppreci$`annual precipitation mm`
+wd = country_temppreci$wd
+region = country_temppreci$name_region
+plot_ly(x=temp, y=precip, z=wd, type="scatter3d", mode="markers", color = region, size = 1)
+```
+
+# regression on wd vs. temp
+```{r}
+#select top mass 40 countries
+chemicalmass <- summary_wdhaother %>%
+  group_by(casrn_chemical) %>%
+  #summarize(chemmass = sum(summass)) %>%
+  summarize(countrycount = n_distinct(name_country)) %>%
+  #arrange(desc(chemmass)) %>%
+  arrange(desc(countrycount)) %>%
+  slice_head(n = 25)
+#select top mass 50 crops
+cropmass <- summary_wdhaother %>%
+  group_by(name_crop_earthstat) %>%
+  #summarize(cropmass = sum(summass)) %>%
+  summarize(countrycount = n_distinct(name_country)) %>%
+  #arrange(desc(cropmass)) %>%
+  arrange(desc(countrycount)) %>%
+  slice_head(n = 25)
+#select top mass 50 crops
+cropmass <- summary_wdhacropcountryotherindi %>%
+  group_by(name_crop_earthstat) %>%
+  #summarize(cropmass = sum(summass)) %>%
+  summarize(countrycount = n_distinct(name_country)) %>%
+  #arrange(desc(cropmass)) %>%
+  arrange(desc(countrycount)) %>%
+  slice_head(n = 25)
+#select crop-chemical more countries coverage
+countrycount <- input_sourceother %>%
+  filter(name_cropgroup == "Cereals") %>%
+  group_by(name_crop_earthstat, casrn_chemical) %>%
+  summarize(countcountry = n_distinct(name_country)) %>%
+  ungroup() %>%
+  arrange(desc(countcountry)) %>%
+  slice_head(n = 36)
+
+dose_lm_chemcrop <- read.csv("C:/Users/yuyzh/Documents/20220603doselinearregression_chemcrop.csv")
+
+#crop <- "rye"
+chemical <- "189278-12-4"
+#indication <-"GROWTH-REGULATORS"
+cropgroup <- "Cereals"
+countcountry <- 18
+#count <- 13
+
+re_cropchemical <- summary_wdhaother %>%
+  #filter(name_cropgroup == "Cereals") %>%
+  #filter(dose < 2) %>%
+  #filter(wd>0.1) %>%
+  #right_join(countrycount, by = c("name_crop_earthstat", "casrn_chemical")) %>%
+  #filter(casrn_chemical %in% chemicalmass$casrn_chemical) %>%
+  #filter(name_crop_earthstat %in% cropmass$name_crop_earthstat) %>%
+  left_join(annualtemp, by = c("name_country" = "name_country")) %>%
+  filter(!is.na(climate_zone)) %>%
+  #filter(name_crop_earthstat == crop) %>%
+  filter(name_cropgroup == cropgroup) %>%
+  #filter(name_indication == indication)
+  filter(casrn_chemical == chemical)
+n_distinct(re_cropchemical$name_crop_earthstat)
+n_distinct(re_cropchemical$casrn_chemical)
+  
+re_cropchemical %>%
+  mutate(climatezone = case_when(climate_zone == "A" ~ "A tropical",
+                                 climate_zone == "B" ~ "B dry",
+                                 climate_zone == "C" ~ "C temperate",
+                                 climate_zone == "D" ~ "D continental",
+                                 climate_zone == "E" ~ "E polar")) %>%
+  #filter(wd>0.1) %>% 
+  filter(name_country != "Venezuela") %>%
+  ggplot(aes(x = `annual temp`, y = wd)) +
+  #geom_point(aes(color = climate_zone), size = 0.5) +
+  geom_point(aes(color = climatezone), size = 2) +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #geom_smooth(method='lm', color = "dark grey") +
+  stat_poly_line() +
+  stat_poly_eq(aes(label = paste(after_stat(eq.label),
+                                 after_stat(rr.label), 
+                                 after_stat(p.value.label), sep = "*\", \"*"))) +
+  #geom_smooth(color = "dark grey") +
+  #geom_errorbar(aes(ymin = mindose, ymax=  maxdose), width=0.5) +
+  #facet_wrap( ~ name_cropgroup, scales = "free_y" ) +
+  theme_bw() +
+  labs(title = paste0(cropgroup, "+", chemical, "+", count))
+  #theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+ggsave(filename = "20220427_mintempcropgrouplog.png", width = 10, height = 10)
+
+re_cropchemical_c <- re_cropchemical %>%
+  filter(name_crop_earthstat == "rapeseed") #%>%
+  filter(wd < 0.3)
+
+re_cropchemical_c %>%
+  ggplot(aes(x = `annual temp`, y = wd)) +
+  geom_point(aes(color = name_region)) +
+  geom_smooth()
+
+
+re_cropchemical_c$logwd <- 10 * (re_cropchemical_c$wd)
+re_cropchemical_c$temp2 <- re_cropchemical_c$`annual temp`^2
+re_cropchemical_c$temp3 <- re_cropchemical_c$`annual temp`^3
+fit <- lm(wd ~ `annual temp`, data = re_cropchemical)
+summary(fit)
+```
+
+```{r}
+input_sourceother <- input_source %>%
+  filter(name_stagegroup != "00 SEED-DRESSING") %>%
+  filter(name_refapp != "Seed treatment") %>%
+  filter(name_stagegroup != "0 SOIL") %>%
+  filter(name_refapp != "Soil incorporation") %>%
+  filter(name_activegroup != "SEMIOCHEMICALS/PHEROMONES") %>%
+  filter(name_indication != "SEED-DRESSING")
+```
+
+
+```{r}
+#weighted dose calculation
+summary_wdhaother_indi <- input_sourceother %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, name_region, name_cropgroup, name_chemclass, name_indication) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(massperc = treated_area_kha/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, summass, sumarea, name_region, name_cropgroup, name_chemclass, mindose, maxdose, name_indication) %>%
+  summarize(wd = sum(applied_mass_kkg)/sum(treated_area_kha))
+  #summarize(wd = sum(normalizedweight * dose))
+
+
+
+
+summary_wdhacountryother <- summary_wdhaother %>%
+  group_by(name_country) %>%
+  summarize(count = n())
+
+input_wdhaother <- input_sourceother %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  mutate(summass = sum(treated_area_kha)) %>%
+  mutate(massperc = treated_area_kha/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  mutate(wd = sum(normalizedweight * dose)) %>%
+  mutate(doseratio = dose/wd)
+```
+
+
+#application method variability (without soil and seed)
+```{r}
+app_cropchemical <- input_wdhaother %>%
+  filter(name_refapp != "undefined") %>%
+  group_by(name_crop_earthstat, casrn_chemical, name_country) %>%
+  mutate(countapp = n_distinct(name_refapp)) %>%
+  #ungroup() %>%
+  group_by(name_crop_earthstat, casrn_chemical, name_country, name_refapp, countapp) %>%
+  mutate(exist = "Y", summass = sum(applied_mass_kkg))
+app_cropchemical_w <- dcast(app_cropchemical, name_crop_earthstat + casrn_chemical + name_country + countapp ~ name_refapp, value.var = "summass", fun.aggregate = mean)
+app_cropchemical_w <- app_cropchemical_w %>%
+  mutate(`Aerial application` = case_when(`Aerial application` == 0 ~ 0,
+                                         TRUE ~ 1),
+         `Boom sprayer` = case_when(`Boom sprayer` == 0 ~ 0,
+                                         TRUE ~ 1),
+         `Hand operated sprayer` = case_when(`Hand operated sprayer` == 0 ~ 0,
+                                         TRUE ~ 1),
+         `Tunnel sprayer` = case_when(`Tunnel sprayer` == 0 ~ 0,
+                                         TRUE ~ 1))
+app_cropchemical_wm <- app_cropchemical_w %>%
+  filter(countapp >1)
+n_distinct(app_cropchemical_wm$name_country)
+
+#weighted dose calculation
+summary_wdhaother_app <- input_sourceother %>%
+  filter(name_refapp != "undefined") %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, name_region, name_cropgroup, name_chemclass, name_refapp) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(massperc = treated_area_kha/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, summass, sumarea, name_region, name_cropgroup, name_chemclass, mindose, maxdose, name_refapp) %>%
+  summarize(wd = sum(normalizedweight * dose)) %>%
+  ungroup() %>%
+  dplyr::select(name_country, name_crop_earthstat, casrn_chemical, name_refapp, wd)
+
+app_cropchemical_wdose <- dcast(summary_wdhaother_app, name_crop_earthstat + casrn_chemical + name_country ~ name_refapp, value.var = "wd", fun.aggregate = mean)
+
+app_cropchemical_wmassdose <- app_cropchemical_w %>%
+  left_join(app_cropchemical_wdose, by = c("name_crop_earthstat", "casrn_chemical", "name_country")) %>%
+  filter(countapp >1) %>%
+  mutate_if(is.numeric, round, 3) %>%
+  ungroup() %>%
+  rowwise() %>%
+  mutate(maxwdratio = max(`Boom sprayer.y`/`Aerial application.y`, `Hand operated sprayer.y`/`Aerial application.y`, `Tunnel sprayer.y`/`Aerial application.y`, `Hand operated sprayer.y`/`Boom sprayer.y`, `Tunnel sprayer.y`/`Boom sprayer.y`, `Tunnel sprayer.y`/`Hand operated sprayer.y`, na.rm = TRUE), minwdratio = min(`Boom sprayer.y`/`Aerial application.y`, `Hand operated sprayer.y`/`Aerial application.y`, `Tunnel sprayer.y`/`Aerial application.y`, `Hand operated sprayer.y`/`Boom sprayer.y`, `Tunnel sprayer.y`/`Boom sprayer.y`, `Tunnel sprayer.y`/`Hand operated sprayer.y`, na.rm = TRUE)) %>%
+  filter(maxwdratio > 3 | minwdratio < 1/3)
+
+```
+
+#application method variability
+```{r}
+app_cropchemical <- input_sourceother %>%
+  filter(name_refapp != "undefined") %>%
+  group_by(name_crop_earthstat, casrn_chemical, name_country) %>%
+  mutate(countapp = n_distinct(name_refapp)) %>%
+  #ungroup() %>%
+  group_by(name_crop_earthstat, casrn_chemical, name_country, name_refapp, countapp) %>%
+  mutate(exist = "Y", summass = sum(applied_mass_kkg))
+
+app_cropchemical_w <- dcast(app_cropchemical, name_crop_earthstat + casrn_chemical + name_country + countapp ~ name_refapp, value.var = "summass", fun.aggregate = mean)
+app_cropchemical_w <- app_cropchemical_w %>%
+  mutate(`Aerial application` = case_when(`Aerial application` == 0 ~ 0,
+                                         TRUE ~ 1),
+         `Boom sprayer` = case_when(`Boom sprayer` == 0 ~ 0,
+                                         TRUE ~ 1),
+         `Hand operated sprayer` = case_when(`Hand operated sprayer` == 0 ~ 0,
+                                         TRUE ~ 1),
+         `Tunnel sprayer` = case_when(`Tunnel sprayer` == 0 ~ 0,
+                                         TRUE ~ 1))
+app_cropchemical_wm <- app_cropchemical_w %>%
+  filter(countapp >1)
+n_distinct(app_cropchemical_wm$name_country)
+
+#weighted dose calculation
+summary_wdhaother_app <- input_sourceother %>%
+  filter(name_refapp != "undefined") %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, name_region, name_cropgroup, name_chemclass, name_refapp) %>%
+  mutate(sumarea = sum(treated_area_kha), summass = sum(applied_mass_kkg), mindose = min(dose), maxdose = max(dose)) %>%
+  mutate(massperc = treated_area_kha/summass, variabilityweight = massperc * score) %>%
+  mutate(normalizedweight = variabilityweight/sum(variabilityweight)) %>%
+  ungroup() %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical, summass, sumarea, name_region, name_cropgroup, name_chemclass, mindose, maxdose, name_refapp) %>%
+  summarize(wd = sum(applied_mass_kkg)/sum(treated_area_kha)) %>%
+  #summarize(wd = sum(normalizedweight * dose)) %>%
+  ungroup() %>%
+  dplyr::select(name_country, name_crop_earthstat, casrn_chemical, name_refapp, wd)
+
+app_cropchemical_wdose <- dcast(summary_wdhaother_app, name_crop_earthstat + casrn_chemical + name_country ~ name_refapp, value.var = "wd", fun.aggregate = mean)
+
+app_cropchemical_wmassdose <- app_cropchemical_w %>%
+  left_join(app_cropchemical_wdose, by = c("name_crop_earthstat", "casrn_chemical", "name_country")) %>%
+  filter(countapp >1) %>%
+  mutate_if(is.numeric, round, 3) %>%
+  ungroup() %>%
+  rowwise() %>%
+  mutate(maxwdratio = max(`Boom sprayer.y`/`Aerial application.y`, `Hand operated sprayer.y`/`Aerial application.y`, `Tunnel sprayer.y`/`Aerial application.y`, `Seed treatment.y`/`Aerial application.y`, `Soil incorporation.y`/`Aerial application.y`, `Hand operated sprayer.y`/`Boom sprayer.y`, `Tunnel sprayer.y`/`Boom sprayer.y`, `Seed treatment.y`/`Boom sprayer.y`, `Soil incorporation.y`/`Boom sprayer.y`, `Tunnel sprayer.y`/`Hand operated sprayer.y`, `Seed treatment.y`/`Hand operated sprayer.y`, `Soil incorporation.y`/`Hand operated sprayer.y`, `Seed treatment.y`/`Tunnel sprayer.y`, `Soil incorporation.y`/`Tunnel sprayer.y`, `Seed treatment.y`/ `Soil incorporation.y`, na.rm = TRUE), minwdratio = min(`Boom sprayer.y`/`Aerial application.y`, `Hand operated sprayer.y`/`Aerial application.y`, `Tunnel sprayer.y`/`Aerial application.y`, `Seed treatment.y`/`Aerial application.y`, `Soil incorporation.y`/`Aerial application.y`, `Hand operated sprayer.y`/`Boom sprayer.y`, `Tunnel sprayer.y`/`Boom sprayer.y`, `Seed treatment.y`/`Boom sprayer.y`, `Soil incorporation.y`/`Boom sprayer.y`, `Tunnel sprayer.y`/`Hand operated sprayer.y`, `Seed treatment.y`/`Hand operated sprayer.y`, `Soil incorporation.y`/`Hand operated sprayer.y`, `Seed treatment.y`/`Tunnel sprayer.y`, `Soil incorporation.y`/`Tunnel sprayer.y`, `Seed treatment.y`/ `Soil incorporation.y`, na.rm = TRUE)) #%>%
+  filter(maxwdratio > 3 | minwdratio < 1/3)
+
+# without seed treatment
+app_cropchemical_wmassdose <- app_cropchemical_w %>%
+  left_join(app_cropchemical_wdose, by = c("name_crop_earthstat", "casrn_chemical", "name_country")) %>%
+  filter(countapp >1) %>%
+  mutate_if(is.numeric, round, 3) %>%
+  ungroup() %>%
+  rowwise() %>%
+  mutate(maxwdratio = max(`Boom sprayer.y`/`Aerial application.y`, `Hand operated sprayer.y`/`Aerial application.y`, `Tunnel sprayer.y`/`Aerial application.y`, `Hand operated sprayer.y`/`Boom sprayer.y`, `Tunnel sprayer.y`/`Boom sprayer.y`, `Tunnel sprayer.y`/`Hand operated sprayer.y`,  na.rm = TRUE), minwdratio = min(`Boom sprayer.y`/`Aerial application.y`, `Hand operated sprayer.y`/`Aerial application.y`, `Tunnel sprayer.y`/`Aerial application.y`,  `Hand operated sprayer.y`/`Boom sprayer.y`, `Tunnel sprayer.y`/`Boom sprayer.y`, `Tunnel sprayer.y`/`Hand operated sprayer.y`, na.rm = TRUE)) %>%
+  filter(maxwdratio > 3 | minwdratio < 1/3)
+```
+
+```{r}
+unique(input_source_usa$name_crop_earthstat)
+```
+
+```{r}
+input_centralamerica <- input_source %>%
+  filter(name_country == "CENTRAL AMERICA-CARIBBEAN") %>%
+  group_by(name_crop_earthstat, name_ai) %>%
+  summarize(summass = sum(applied_mass_kkg), sumarea = sum(treated_area_kha))
+unique(input_centralamerica$name_crop_earthstat)
+input_centralamerica_crop <- input_centralamerica %>%
+  group_by(name_crop_earthstat) %>%
+  summarize(summass = sum(summass), sumarea = sum(sumarea))
+```
+
+
+
+
+```{r}
+caschem <- input_source %>%
+  group_by(name_ai, casrn_chemical) %>%
+  summarize(count = n())
+write.csv(caschem, "caschem.csv")
+```
+
+

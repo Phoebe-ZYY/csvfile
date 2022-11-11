@@ -1,0 +1,381 @@
+---
+title: "FAO crop crosscheck"
+output: html_notebook
+---
+
+
+
+
+```{r}
+crop_FAO_2018 <- file.choose(new = FALSE)
+crop_FAO_2018 <- read_excel(crop_FAO_2018, sheet = 1)
+crop_FAO_2018 <- crop_FAO_2018 %>%
+  filter(Element == "Area harvested")
+
+crop_FAO_notin <- crop_FAO_2018
+```
+
+```{r}
+harmonization_bayer <- file.choose(new = FALSE)
+harmonization_bayer <- read_excel(harmonization_bayer, sheet = 3)
+```
+
+```{r}
+crop_bayer_2018 <- input_bayer_2018_final %>%
+  left_join(harmonization_bayer, by = c("name_crop" = "name_crop"))
+```
+
+
+```{r}
+harmonization_FAO <- file.choose(new = FALSE)
+harmonization_FAO <- read_excel(harmonization_FAO, sheet = 4)
+```
+
+
+
+```{r}
+sum(crop_FAO_2018$Value, na.rm = TRUE)
+```
+
+```{r}
+sum(input_bayer_2018_final$`treated_area_[1000ha/yr]`)
+```
+
+
+```{r}
+crop_FAO_2018 <- crop_FAO_2018 %>%
+  mutate(name_country = case_when(Area == "China, mainland" ~ "China",
+                                  Area == "China, Macao SAR" ~ "China",
+                                  Area == "China, Hong Kong SAR" ~ "China",
+                                  Area == "Bolivia (Plurinational State of)" ~ "Bolivia",
+                                  Area == "Czechia" ~ "Czech Republic",
+                                  Area == "Republic of Korea" ~ "Korea, Republic of",
+                                  Area == "North Macedonia" ~ "Macedonia, the former Yugoslav Republic of",
+                                  Area == "Niger" ~ "Nigeria",
+                                  Area == "China, Taiwan Province of" ~ "Taiwan, Province of China",
+                                  Area == "United Republic of Tanzania" ~ "Tanzania, United Republic of",
+                                  Area == "United Kingdom of Great Britain and Northern Ireland" ~ "United Kingdom",
+                                  Area == "United States of America" ~ "United States",
+                                  Area == "Venezuela (Bolivarian Republic of)" ~ "Venezuela",
+                                  TRUE ~ Area)) %>%
+  filter(name_country %in% input_bayer_2018_final$name_country)
+
+sum(crop_FAO_2018$Value, na.rm = TRUE)
+```
+
+```{r}
+crop_FAO_2018 <- crop_FAO_2018 %>%
+  left_join(harmonization_FAO, by = c("Item" = "Item"))
+```
+
+```{r}
+#crop_FAO_2018 <- crop_FAO_2018 %>%
+  #left_join(harmonization_bayer, by = c("name_crop" = "name_crop_FAO"))
+```
+
+
+
+
+```{r}
+crop_FAO_sum <- crop_FAO_2018 %>%
+  group_by(name_country) %>%
+  summarise(`treated_area_[1000ha/yr]` = sum(Value, na.rm = TRUE)/1000)
+```
+
+
+
+```{r}
+crop_bayer_2018_pest <- crop_bayer_2018 %>%
+  #group_by(name_country) %>%
+  group_by(name_country, name_crop_FAO, name_indication, name_group) %>%
+  summarize(`treated_area_[1000ha/yr]` = sum(`treated_area_[1000ha/yr]`, na.rm = TRUE)) %>%
+  mutate(name_crop = name_crop_FAO)
+```
+
+```{r}
+crop_bayer_2018_bbch <- crop_bayer_2018 %>%
+  #group_by(name_country) %>%
+  group_by(name_country, name_crop_FAO, name_indication, name_group, code_bbch) %>%
+  summarize(`treated_area_[1000ha/yr]` = sum(`treated_area_[1000ha/yr]`, na.rm = TRUE)) %>%
+  mutate(name_crop = name_crop_FAO)
+```
+
+```{r}
+unique(crop_bayer_2018_bbch$code_bbch)
+```
+
+```{r}
+crop_bayer_2018_bbch <- crop_bayer_2018_bbch %>%
+  mutate(group_bbch = case_when((code_bbch == "20" | code_bbch =="21" | code_bbch =="22" |code_bbch == "29" | code_bbch =="30" | code_bbch =="31" | code_bbch =="32" |code_bbch =="33" | code_bbch =="37" | code_bbch =="40" | code_bbch =="41") ~ "20 to 49",
+                                (code_bbch == "50" | code_bbch =="51" |code_bbch == "52" |code_bbch =="53" |code_bbch =="55" | code_bbch =="59" | code_bbch =="60" | code_bbch =="61" |code_bbch =="62" | code_bbch =="65" | code_bbch =="67") ~ "50 to 69",
+                                (code_bbch == "70" | code_bbch =="71" | code_bbch =="73" |code_bbch == "76" |code_bbch == "77" | code_bbch =="80" | code_bbch =="81" | code_bbch =="89" |code_bbch == "91" |code_bbch =="92" | code_bbch =="97" |code_bbch =="98") ~ "70 to 98",
+                                code_bbch == "99" ~ "99",
+                                TRUE ~ "00 to 19"))
+
+
+```
+
+
+
+```{r}
+crop_FAO_2018_pest <- crop_FAO_2018 %>%
+  #group_by(name_country) %>%
+  group_by(name_country, name_group, name_crop) %>%
+  summarize(`treated_area_[1000ha/yr]` = sum(Value, na.rm = TRUE)/1000)
+```
+
+```{r}
+crop_bayer_2018_pest_Algeria <- crop_bayer_2018_pest %>%
+  filter(name_country == "Algeria")
+crop_FAO_2018_pest %>%
+  filter(name_country == "Algeria") %>%
+  ggplot(., aes(x = reorder(name_crop, -`treated_area_[1000ha/yr]`), `treated_area_[1000ha/yr]`)) +
+  geom_point(shape=21, color="black", fill="#69b3a2", size=2) +
+  geom_point(data = crop_bayer_2018_pest_Algeria, shape = 1, color = "red", size = 1)
+
+```
+
+
+```{r}
+        available1 <- crop_bayer_2018_bbch %>%
+            filter(name_country == "Finland") %>%
+            group_by(name_group, name_indication, group_bbch) %>%
+            summarize(`treated_area_[1000ha/yr]` = sum(`treated_area_[1000ha/yr]`, na.rm = TRUE))
+        available2 <- crop_FAO_2018_pest %>%
+            filter(name_country == "Finland") %>%
+            group_by(name_group) %>%
+            summarize(`treated_area_[1000ha/yr]` = sum(`treated_area_[1000ha/yr]`, na.rm = TRUE)) %>%
+            mutate(name_indication = "FULL") %>%
+            mutate(group_bbch = "FULL") %>%
+            arrange(desc(`treated_area_[1000ha/yr]`))
+        vec <- available2$name_group
+        available <- rbind(available1, available2)
+        
+        p <- available %>%
+            ggplot(., aes(x = factor(name_group, level = vec), y = log(`treated_area_[1000ha/yr]`))) +
+            geom_point(aes(size=name_indication, color=name_indication, shape = group_bbch)) + 
+            scale_size_manual(values = c("FULL" = 2, "FUNGICIDES" = 1, "HERBICIDES" =1, "INSECTICIDES" = 1, "SEED-DRESSING" = 1, "GROWTH-REGULATORS" = 1, "OTHERS"  = 1, "FUNGICIDES/INSECT" = 1, "RODENTICIDES" = 1)) +
+            theme_bw() +
+            theme(axis.text.x = element_text(angle = 60, hjust = 1))
+        p
+        ggplotly(p)
+
+```
+
+
+
+```{r}
+crop_bayer_2018_pest_Algeria_group <- crop_bayer_2018_pest %>%
+  filter(name_country == "Denmark") %>%
+  group_by(name_group, name_indication) %>%
+  summarize(`treated_area_[1000ha/yr]` = sum(`treated_area_[1000ha/yr]`, na.rm = TRUE))
+crop_FAO_2018_pest_group <- crop_FAO_2018_pest %>%
+  filter(name_country == "Denmark") %>%
+  group_by(name_group) %>%
+  summarize(`treated_area_[1000ha/yr]` = sum(`treated_area_[1000ha/yr]`, na.rm = TRUE)) %>%
+  mutate(name_indication = "FULL") %>%
+  arrange(desc(`treated_area_[1000ha/yr]`))
+
+vec <- crop_FAO_2018_pest_group$name_group
+
+crop_bayer_FAO_Algeria_group <- rbind(crop_bayer_2018_pest_Algeria_group, crop_FAO_2018_pest_group)
+
+unique(crop_bayer_FAO_Algeria_group$name_indication)
+
+plot2 <- crop_bayer_FAO_Algeria_group %>%
+  ggplot(., aes(x = factor(name_group, level = vec), y = log(`treated_area_[1000ha/yr]`), group = name_indication)) +
+  geom_point(aes(size=name_indication, color=name_indication)) + 
+  scale_size_manual(values = c("FULL" = 2, "FUNGICIDES" = 0.5, "HERBICIDES" =0.5, "INSECTICIDES" = 0.5, "SEED-DRESSING" = 0.5, "GROWTH-REGULATORS" = 0.5, "OTHERS"  = 0.5, "FUNGICIDES/INSECT" = 0.5, "RODENTICIDES" = 0.5)) +
+  theme_bw()
+plot2
+ggplotly(plot2)
+
+
+
+
+```
+
+```{r}
+crop_bayer_FAO <- crop_bayer_2018 %>%
+  full_join(crop_FAO_2018, by = c("name_crop_FAO" = "Item", "name_country" = "name_country"))
+```
+
+```{r}
+crop_bayer_FAO %>%
+  filter(name_country == "Algeria") %>%
+  ggplot(., aes(x = reorder(name_crop_FAO, -Value))) +
+  geom_point(aes(y = Value/1000), shape=21, color="black", fill="#69b3a2", size=2) +
+  geom_point(aes(y = `treated_area_[1000ha/yr]`), shape = 1, color = "red", size = 1) +
+  theme_ipsum() +
+  ggtitle("crop-area") +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+  
+```
+
+
+```{r}
+crop_bayer_sum <- crop_bayer_2018 %>%
+  group_by(name_country) %>%
+  summarise(`treated_area_[1000ha/yr]` = sum(`treated_area_[1000ha/yr]`, na.rm = TRUE))
+```
+
+```{r}
+crop_FAO_input_2018_sum <- crop_bayer_sum %>%
+  left_join(crop_FAO_sum, by = c("name_country" = "name_country")) %>%
+  mutate(percentdiff = (`treated_area_[1000ha/yr].x` - `treated_area_[1000ha/yr].y`)/`treated_area_[1000ha/yr].x` * 100) %>%
+  mutate(ratio = `treated_area_[1000ha/yr].x`/`treated_area_[1000ha/yr].y`) %>%
+  arrange(desc(ratio)) 
+
+crop_FAO_input_2018_sum %>%
+  ggplot(., aes(x = reorder(name_country, -ratio), y = log(ratio), group = 1)) +
+  geom_line(color="grey") +
+  geom_point(shape=21, color="black", fill="#69b3a2", size=2) +
+  theme_ipsum() +
+  ggtitle("log(S_Bayer/S_FAO) in each country") +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+```
+
+
+
+separate by chemicals
+
+```{r}
+crop_bayer_2018_chem <- crop_bayer_2018 %>%
+  #group_by(name_country) %>%
+  group_by(name_country, name_crop_FAO, name_indication, name_group, name_ai, casrn_chemical) %>%
+  summarize(`treated_area_[1000ha/yr]` = sum(`treated_area_[1000ha/yr]`, na.rm = TRUE)) %>%
+  mutate(name_crop = name_crop_FAO)
+```
+
+```{r}
+crop_bayer_2018_bbchchem <- crop_bayer_2018 %>%
+  #group_by(name_country) %>%
+  group_by(name_country, name_crop_FAO, name_indication, name_group, code_bbch, name_ai, casrn_chemical) %>%
+  summarize(`treated_area_[1000ha/yr]` = sum(`treated_area_[1000ha/yr]`, na.rm = TRUE)) %>%
+  mutate(name_crop = name_crop_FAO)
+```
+ 
+```{r}
+crop_bayer_2018_bbchchem <- crop_bayer_2018_bbchchem %>%
+  mutate(group_bbch = case_when((code_bbch == "20" | code_bbch =="21" | code_bbch =="22" |code_bbch == "29" | code_bbch =="30" | code_bbch =="31" | code_bbch =="32" |code_bbch =="33" | code_bbch =="37" | code_bbch =="40" | code_bbch =="41") ~ "20 to 49",
+                                (code_bbch == "50" | code_bbch =="51" |code_bbch == "52" |code_bbch =="53" |code_bbch =="55" | code_bbch =="59" | code_bbch =="60" | code_bbch =="61" |code_bbch =="62" | code_bbch =="65" | code_bbch =="67") ~ "50 to 69",
+                                (code_bbch == "70" | code_bbch =="71" | code_bbch =="73" |code_bbch == "76" |code_bbch == "77" | code_bbch =="80" | code_bbch =="81" | code_bbch =="89" |code_bbch == "91" |code_bbch =="92" | code_bbch =="97" |code_bbch =="98") ~ "70 to 98",
+                                code_bbch == "99" ~ "99",
+                                TRUE ~ "00 to 19"))
+
+
+```
+ 
+```{r}
+crop_FAO_2018_pest <- crop_FAO_2018 %>%
+  #group_by(name_country) %>%
+  group_by(name_country, name_group, name_crop) %>%
+  summarize(`treated_area_[1000ha/yr]` = sum(Value, na.rm = TRUE)/1000)
+```
+ 
+ 
+```{r}
+crop_FAO_portugal <- crop_FAO_2018 %>%
+  filter(name_country == "Portugal")
+```
+
+```{r}
+crop_bayer_portugal <- crop_bayer_2018 %>%
+  filter(name_country == "Portugal") %>%
+  group_by(name_crop_FAO, name_group) %>%
+  summarize(masssum = sum(`applied_mass_[1000kg/yr]`))
+```
+
+
+```{r}
+crop_bayer_all <- crop_bayer_2018 %>%
+  group_by(name_country, name_crop_FAO, name_group) %>%
+  summarize(masssum = sum(`applied_mass_[1000kg/yr]`))
+```
+
+```{r}
+crop_FAO_all <- crop_FAO_2018 %>%
+  group_by(name_country,name_crop, name_group) %>%
+  summarize(sumarea = sum(Value))
+```
+
+
+```{r}
+crop_all <- crop_FAO_all %>%
+  full_join(crop_bayer_all, by = c("name_country", "name_crop" = "name_crop_FAO"))
+```
+
+
+```{r}
+`%not_in%` <- purrr::negate(`%in%`)
+crop_FAO_notin <- crop_FAO_notin %>%
+  mutate(name_country = case_when(Area == "China, mainland" ~ "China",
+                                  Area == "China, Macao SAR" ~ "China",
+                                  Area == "China, Hong Kong SAR" ~ "China",
+                                  Area == "Bolivia (Plurinational State of)" ~ "Bolivia",
+                                  Area == "Czechia" ~ "Czech Republic",
+                                  Area == "Republic of Korea" ~ "Korea, Republic of",
+                                  Area == "North Macedonia" ~ "Macedonia, the former Yugoslav Republic of",
+                                  Area == "Niger" ~ "Nigeria",
+                                  Area == "China, Taiwan Province of" ~ "Taiwan, Province of China",
+                                  Area == "United Republic of Tanzania" ~ "Tanzania, United Republic of",
+                                  Area == "United Kingdom of Great Britain and Northern Ireland" ~ "United Kingdom",
+                                  Area == "United States of America" ~ "United States",
+                                  Area == "Venezuela (Bolivarian Republic of)" ~ "Venezuela",
+                                  TRUE ~ Area)) %>%
+  filter(name_country %in% input_bayer_2018_final$name_country)
+  
+```
+
+```{r}
+crop_FAO_notin <- crop_FAO_notin %>%
+  left_join(harmonization_FAO, by = c("Item" = "Item"))
+```
+
+```{r}
+crop_FAO_notin <- crop_FAO_notin %>%
+  group_by(name_country,name_crop, name_group) %>%
+  summarize(sumarea = sum(Value))
+```
+```{r}
+crop_bayer_notin <- crop_bayer_2018 %>%
+  group_by(name_country, name_crop_FAO, name_group) %>%
+  summarize(masssum = sum(`applied_mass_[1000kg/yr]`))
+```
+
+```{r}
+`%not_in%` <- purrr::negate(`%in%`)
+crop_notin <- crop_FAO_notin %>%
+  group_by(name_country) %>%
+  filter(name_crop %not_in% crop_bayer_notin$name_crop_FAO)
+unique(crop_notin$name_crop)
+```
+
+```{r}
+crop_all_sp <- crop_all %>%
+  select(name_crop, sumarea)
+crop_all_sp <- spread(crop_all_sp, name_crop, sumarea)
+```
+
+```{r}
+crop_all <- crop_all %>%
+  mutate(B = case_when(!is.na(masssum) ~ "B",),
+         F = case_when(!is.na(sumarea) ~ "F",),
+         exist = case_when(!is.na(B) & !is.na(F) ~ "both",
+                           !is.na(B) & is.na(F) ~ "B",
+                           is.na(B) & !is.na(F) ~ "F",
+                           is.na(B) & is.na(F) ~ "none"))
+
+
+crop_all_sp <- crop_all %>%
+  select(name_country, name_crop, exist)
+crop_all_sp <- spread(crop_all_sp, name_crop, exist)
+crop_all_m = melt(crop_all, id.vars = c("name_country", "name_crop"),
+                measure.vars = c("B", "F"))
+```
+
+```{r}
+input_check <- input_bayer_2018_final %>%
+  group_by(name_country, )
+```
+

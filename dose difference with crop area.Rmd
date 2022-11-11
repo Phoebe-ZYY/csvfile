@@ -1,0 +1,42 @@
+---
+title: "dose difference with super treated area or crop area"
+output: html_notebook
+---
+
+```{r}
+summary_wdhaother #summass, sumarea, calculated weighted average dose
+join_short_country_uni_ratio #country crop area
+join_short_country_uni_ratio_i <- join_short_country_uni_ratio %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea (the Republic of)",
+                                  name_cntr == "Iran, Islamic Republic of" ~ "Iran (Islamic Republic of)",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, the United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~"United States of America",
+                                  name_cntr == "Republic Of Moldova" ~ "Moldova (the Republic of)",
+                                  TRUE ~ name_cntr))
+dose_croparea <- summary_wdhaother %>%
+  left_join(join_short_country_uni_ratio_i, by = c("name_country","name_crop_earthstat" = "variable")) %>%
+  mutate(dose_croparea = summass * 1000/cropsumarea) %>%
+  select(name_country, name_crop_earthstat, casrn_chemical, name_region.y, name_cropgroup, name_chemclass, summass, sumarea, cropsumarea, mindose, maxdose, wd, dose_croparea) %>%
+  mutate(factor = wd/dose_croparea) #%>%
+  #filter(factor > 10 | factor < 0.1)
+
+massthroughdose <- dose_croparea %>%
+  mutate(massthroughdose = wd*cropsumarea/1000)
+
+massthroughdose_country <- massthroughdose %>%
+  group_by(name_country) %>%
+  summarize(masscountryori = sum(summass), masscountrycal = sum(massthroughdose)) %>%
+  mutate(factor1 = masscountrycal/masscountryori, factor2 = masscountryori/masscountrycal) %>%
+  mutate(factor = case_when(factor1 > factor2 ~ factor1,
+                            factor1 < factor2 ~ factor2))
+
+massthroughdose_countrycrop <- massthroughdose %>%
+  group_by(name_country, name_crop_earthstat) %>%
+  summarize(masscountryori = sum(summass), masscountrycal = sum(massthroughdose)) %>%
+  mutate(factor1 = masscountrycal/masscountryori, factor2 = masscountryori/masscountrycal) %>%
+  mutate(factor = case_when(factor1 > factor2 ~ factor1,
+                            factor1 < factor2 ~ factor2))
+```
+

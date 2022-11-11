@@ -1,0 +1,140 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+
+
+#check spam vs. fao
+spam_compare <- spam2010 %>%
+  group_by(name_cntr) %>%
+  summarize(sumwhea = sum(whea_a), sumwhea = sum(whea_a), sumrice = sum(rice_a), sumwhea = sum(whea_a), summaiz = sum(maiz_a), sumbarl = sum(barl_a), sumpmil = sum(pmil_a), sumsmil = sum(smil_a), sumsorg = sum(sorg_a), sumocer = sum(ocer_a), sumpota = sum(pota_a), sumswpo = sum(swpo_a), sumyams = sum(yams_a), sumcass = sum(cass_a), sumorts = sum(orts_a), sumbean = sum(bean_a), sumchic = sum(chic_a), sumcowp = sum(cowp_a), sumpige = sum(pige_a), sumlent = sum(lent_a), sumopul = sum(opul_a), sumsoyb = sum(soyb_a), sumgrou = sum(grou_a), sumcnut = sum(cnut_a), sumoilp = sum(oilp_a), sumsunf = sum(sunf_a), sumrape = sum(rape_a), sumsesa = sum(sesa_a), sumooil = sum(ooil_a), sumsugc = sum(sugc_a), sumsugb = sum(sugb_a), sumcott = sum(cott_a), sumofib = sum(ofib_a), sumacof = sum(acof_a), sumrcof = sum(rcof_a), sumcoco = sum(coco_a), sumteas = sum(teas_a), sumtoba = sum(toba_a), sumbana = sum(bana_a), sumplnt = sum(plnt_a), sumtrof = sum(trof_a), sumtemf = sum(temf_a), sumvege = sum(vege_a), sumrest = sum(rest_a))
+
+spam_compare_m <- melt(spam_compare, id.vars = c("name_cntr"))
+
+spam_compare_m$variable <- gsub("^.{0,3}", "", spam_compare_m$variable)
+
+```
+
+```{r}
+fao_spam <- read_xlsx("/Users/yuyue/Documents/Research/Database/harmonization/Crop_Data.xlsx", sheet = 1)
+spam_id <- read_xlsx("/Users/yuyue/Documents/Research/Database/harmonization/Crop_Data.xlsx", sheet = 2)
+
+
+fao_spam <- fao_spam %>%
+  mutate(id_spam = as.numeric(id_spam)) %>%
+  left_join(spam_id, by = c("id_spam" = "ID")) %>%
+  select(Cropname_FAO, code_faostat, id_spam, `Short Name`)
+```
+
+
+
+```{r}
+# FAO data 2010
+fao2010 <- read_csv("/Users/yuyue/Documents/Research/map/cropmap/FAOSTAT_data_9-14-2021.csv")
+
+```
+
+```{r}
+fao2010 <- fao2010 %>%
+  select(Area, `Item Code (FAO)`, Item, Value, `Flag Description`) %>%
+  mutate(Area = str_to_title(Area)) %>%
+  mutate(Area = case_when(Area == "Bolivia (Plurinational State Of)" ~ "Bolivia",
+                          Area == "Cabo Verde" ~ "Cape Verde",
+                          Area == "China, Hong Kong Sar" ~ "China",
+                          Area == "China, Macao Sar" ~ "China",
+                          Area == "China, Mainland" ~ "China",
+                          Area == "Czechia" ~ "Czech Republic",
+                          Area == "Democratic People's Republic Of Korea" ~ "Dem People's Rep Of Korea",
+                          Area == "Democratic Republic Of The Congo" ~ "Democratic Republic Of The Con",
+                          Area == "Guinea-Bissau" ~ "Guinea-bissau",
+                          Area == "Iran (Islamic Republic Of)" ~ "Iran  (islamic Republic Of)",
+                          Area == "Lao People's Democratic Republic" ~ "Lao People's Democratic Republ",
+                          Area == "Libya" ~ "Libyan Arab Jamahiriya",
+                          Area == "Micronesia (Federated States Of)" ~ "Micronesia (federated States O",
+                          Area == "Saint Vincent And The Grenadines" ~ "Saint Vincent And The Grenadin",
+                          Area == "Samoa" ~ "American Samoa",
+                          Area == "Sudan (Former)" ~ "Sudan",
+                          Area == "Timor-Leste" ~ "Timor-leste",
+                          Area == "United Kingdom Of Great Britain And Northern Ireland" ~ "U.k. Of Great Britain And Nort",
+                          Area == "Venezuela (Bolivarian Republic Of)" ~ "Venezuela",
+                          TRUE ~ Area)) %>%
+  group_by(Area, `Item Code (FAO)`, Item) %>%
+  summarize(Value = sum(Value))
+
+
+
+faospam_2010 <- fao2010 %>%
+  left_join(fao_spam, by = c("Item Code (FAO)" = "code_faostat")) %>%
+  group_by(Area, `Short Name`) %>%
+  summarize(area = sum(Value, na.rm = TRUE)) %>%
+  full_join(spam_compare_m, by = c("Short Name" = "variable", "Area" = "name_cntr")) %>%
+  filter(!is.na(`Short Name`))
+
+unique(sort(spam2010$name_cntr))
+```
+
+```{r}
+faospam_2010 <- faospam_2010 %>%
+  mutate(crop = case_when(`Short Name` == "pmil" ~ "mill",
+                          `Short Name` == "smil" ~ "mill",
+                          `Short Name` == "acof" ~ "coff",
+                          `Short Name` == "rcof" ~ "coff",
+                          TRUE ~ as.character(`Short Name`))) %>%
+  group_by(Area, crop) %>%
+  summarize(area_fao = sum(area, na.rm = TRUE),
+            area_spam = sum(value, na.rm = TRUE))
+
+# country specific in a rshiny
+
+faospam_2010 %>%
+  filter(Area == "Algeria") %>%
+  ggplot(., aes(x = reorder(crop, -area_fao))) +
+  geom_point(aes(y = area_fao), shape=21, color="black", fill="#69b3a2", size=2) +
+  geom_point(aes(y = area_spam), shape = 1, color = "red", size = 1) +
+  theme_ipsum() +
+  ggtitle("crop-area") +
+  scale_y_continuous(trans=scales::pseudo_log_trans(base = 10)) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+
+faospam_2010 <- faospam_2010 %>%
+  mutate(diff = percent((area_spam - area_fao)/area_fao,accuracy=0.1))
+```
+
+```{r}
+faospam_tot_2010 <- faospam_2010 %>%
+  group_by(Area) %>%
+  summarize(sumfao = sum(area_fao), sumspam = sum(area_spam)) %>%
+  mutate(diff = round((sumspam-sumfao)/sumfao * 100, 1))
+```
+
+```{r}
+faospam_tot_2010 %>%
+  ggplot(., aes(x = reorder(Area, -sumfao))) +
+  geom_point(aes(y = sumfao), shape=21, color="black", fill="#69b3a2", size=2) +
+  geom_bar(aes(y = sumspam),stat='identity') +
+  ggtitle("crop-area fao-spam") +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+```
+
+```{r}
+#faospam_2010_m <- melt(faospam_2010_c, id.vars = c("Area", "crop"))
+faospam_2010_c <- faospam_2010 %>%
+  group_by(Area) %>%
+  top_n(10, area_spam)
+
+faospam_2010_m <- melt(faospam_2010_c, id.vars = c("Area", "crop"))
+
+  
+faospam_2010_m %>%
+  filter(Area == "Algeria") %>%
+  ggplot(., aes(fill = crop, y = value, x = variable)) +
+  geom_bar(position="stack", stat="identity") +
+  #facet_wrap(~ Area, scales = "free") +
+  theme_bw() + 
+  coord_flip() +
+  scale_fill_brewer(palette = "RdBu") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 0))
+```
+

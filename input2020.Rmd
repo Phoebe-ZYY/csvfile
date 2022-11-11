@@ -1,0 +1,404 @@
+---
+title: "2020 data"
+output: html_notebook
+---
+```{r}
+library(tidyverse)
+library(readxl)
+library(purrr)
+library(ggthemes)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r}
+input2020 <- read_xlsx("C:/me/Bayer-input/data_ai_level/2020_Active level_DTU_priority data_scenario 2018.xlsx")
+
+#check scenarios
+# input2019_cropcntrai <- input2019_cas %>%
+#   group_by(name_country, name_ai_bayer, name_crop_bayer) %>%
+#   summarize(n())
+# sum(input2020$applied_mass_kkg)
+# sum(input2019$applied_mass_kkg)
+
+files <- list.files(path = "C:/me/Database/harmonization/", pattern = "*.xlsx", full.names = TRUE)
+file_name <- list.files(path = "C:/me/Database/harmonization/", pattern = "*.xlsx")
+
+readexcel <- function(x, y){
+  #browser()
+  x <- read_excel(x)
+  y <- gsub(".xlsx", "", y)
+  assign(y, x, envir = .GlobalEnv)
+}
+
+map2(files, file_name, readexcel)
+```
+
+```{r}
+#left join to the harmonization_country table, change if the parameter names change
+#n_distinct(input2020$name_country_bayer)
+#sort(unique(input2020$name_country_bayer))
+input2020_cntr <- input2020 %>%
+  left_join(harmonization_country, by = c("name_country_bayer" = "name_country_bayer"))
+
+
+# check if all countries can be allocated
+# currently no records for CENTRAL AMERICA-CARIBBEAN and change them still to CENTRAL AMERICA-CARIBBEAN
+input2020_cntrna <- input2020_cntr %>%
+  filter(is.na(name_country))
+n_distinct(input2020_cntrna$name_country_bayer)
+input2020_cntr <- input2020_cntr %>% 
+  mutate(name_country = replace_na(name_country, "CENTRAL AMERICA-CARIBBEAN"))
+
+totalmass2020 <- sum(input2020_cntr$applied_mass_kkg)
+totalarea2020 <- sum(input2020_cntr$treated_area_kha)
+input2020_cntrmass <- input2020_cntr %>%
+  group_by(name_country) %>%
+  summarize(mass = sum(applied_mass_kkg), area = sum(treated_area_kha), massratio = round(mass/totalmass2020,2), arearatio = round(area/totalarea2020,2))
+```
+
+```{r}
+# left join to the harmonization_crop table, change if the parameter names change
+
+# crop2020 <- input2020 %>%
+#   group_by(name_crop_bayer, name_cropgroup, name_cropmaingroup) %>%
+#   summarize(mass = sum(applied_mass_kkg), area = sum(treated_area_kha),count = n())
+# n_distinct(input2020$name_crop_bayer)
+
+input2020_crop <- input2020_cntr %>%
+  left_join(harmonization_crop, by = c("name_crop_bayer" = "name_crop_bayer"))
+
+# check if all crops can be allocated
+# change after confirmation of the crop names
+input2020_cropna <- input2020_crop %>%
+  filter(is.na(name_crop_earthstat))
+n_distinct(input2020_cropna$name_crop_bayer)
+unique(input2020_cropna$name_crop_bayer)
+
+n_distinct(input2020_crop$name_crop_earthstat)
+
+input2020_cropcntr <- input2020_crop %>%
+  group_by(name_country, name_crop_earthstat, name_cropgroup, name_region) %>%
+  summarize(mass = sum(applied_mass_kkg), area = sum(treated_area_kha)) %>%
+  ungroup() %>%
+  group_by(name_country) %>%
+  mutate(massratio = round(mass/sum(mass), 2), arearatio = round(area/sum(area),2)) %>%
+  mutate(year = "2020")
+
+
+n_distinct(input2020$name_source)
+input2020_cropcntrsource <- input2020_crop %>%
+  group_by(name_country, name_crop_earthstat, name_source) %>%
+  summarize(count2020 = n())
+input_cropcntrsource <- input2020_cropcntrsource %>%
+  left_join(input2019_cropcntrsource, by = c("name_country" = "name_country", "name_crop_earthstat" = "name_crop_earthstat"))
+```
+
+#heatmap crop-country
+```{r}
+#n_distinct(input2019_crop$name_crop)
+input2020_cropcntr %>%
+  filter(name_country != "Spain") %>%
+  ggplot(., aes(x = name_crop_earthstat, y = name_country, fill = mass)) +
+  geom_raster() + 
+  #theme_tufte(base_family="Helvetica") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + # lables vertical
+        #strip.text.y = element_blank()) +  #remove facet bar on y 
+  scale_fill_gradient(low = "lightgrey", high = "darkred") +
+  ggtitle("test table") +
+  scale_fill_gradient(trans = "log", low = "lightgrey", high = "darkred", breaks = c(0.2, 20, 3000, 100000)) +
+  facet_grid(rows = vars(name_region), 
+             cols = vars(name_cropgroup), scales = "free", space="free")
+```
+
+
+
+```{r}
+# left join to the harmonization_casrn table, change if the parameter names change, join by two indexes both casrn and ai name
+n_distinct(input2020$casrn_chemical_bayer)
+input2020_cas <- input2020_crop %>%
+  mutate(casrn_chemical_bayer = replace_na(casrn_chemical_bayer, "NONE")) %>%
+  left_join(harmonization_casrn, by = c("casrn_chemical_bayer" = "casrn_chemical_bayer", "name_ai_bayer" = "name_ai_bayer"))
+
+# casna <- input2020_cas %>%
+#   filter(casrn_chemical_bayer == "NAME") %>%
+#   distinct(casrn_chemical_bayer, name_activegroup, name_ai_bayer)
+
+# chemical2020 <- input2020_cas %>%
+#   group_by(name_ai_bayer, casrn_chemical_bayer, name_activegroup) %>%
+#   summarize(mass = sum(applied_mass_kkg), area = sum(treated_area_kha),count = n())
+# chemical2020 %>%
+#   group_by(casrn_chemical_bayer) %>%
+#   summarize(n = n()) %>%
+#   filter(n > 1)
+
+# chemical2020_check <- chemical2020 %>%
+#   full_join(harmonization_casrn, by = c("casrn_chemical_bayer" = "casrn_chemical_bayer", "name_ai_bayer" = "name_ai_bayer")) %>%
+#   select(name_ai_bayer, name_ai, casrn_chemical, casrn_chemical_bayer, mass, area, count, name_activegroup) %>%
+#   mutate(exist2020 = case_when(is.na(mass) ~ "n",
+#                            TRUE ~ "y"),
+#          exist2018 = case_when(is.na(casrn_chemical) ~ "n",
+#                                TRUE ~ "y"))
+# write.csv(chemical2020_check, "chemical2020check.csv")
+
+
+# check if all crop stages can be allocated
+# check in casrn_check.rmd if new cas number introduced
+
+input2020_casna <- input2020_cas %>%
+  filter(is.na(casrn_chemical))
+n_distinct(input2020_casna$casrn_chemical_bayer)
+sort(unique(input2020_casna$casrn_chemical_bayer))
+
+# 17779 records with no cas rn
+input2020_casname <- input2020_cas %>%
+  filter(casrn_chemical == "NAME")
+input2020cntr_mass <- input2020_cas %>%
+  group_by(name_country) %>%
+  summarize(area = sum(treated_area_kha), mass = sum(applied_mass_kkg))
+input2020cntr_casnamemass <- input2020_casname %>%
+  group_by(name_country, name_chemclass1) %>%
+  summarize(namearea = sum(treated_area_kha), namemass = sum(applied_mass_kkg))
+input2020cntr_mass <- input2020cntr_mass %>%
+  left_join(input2020cntr_casnamemass, by = c("name_country" = "name_country")) %>%
+  mutate(arearatio = round(namearea/area,2), massratio = round(namemass/mass,2))
+
+nrow(input2020_casname)/nrow(input2020_cas)
+sum(input2020_casname$applied_mass_kkg)/sum(input2020_cas$applied_mass_kkg)
+
+input2020_countrychemclass <- input2020_cas %>%
+  group_by(name_country) %>%
+  mutate(countrysum = sum(applied_mass_kkg), countrycount = n()) %>%
+  ungroup() %>%
+  group_by(name_country, name_chemclass, countrysum, countrycount, name_region) %>%
+  summarize(summass = sum(applied_mass_kkg), count = n()) %>%
+  mutate(massratio = round(summass/countrysum,2), countratio = round(count/countrycount,2))
+input2020_countrychemclassnospain <- input2020_countrychemclass %>%
+  filter(name_country != "Spain")
+
+input2020_cropchemclass <- input2020_cas %>%
+  filter(name_country != "Spain") %>%
+  group_by(name_crop_earthstat) %>%
+  mutate(cropsum = sum(applied_mass_kkg), cropcount = n()) %>%
+  ungroup() %>%
+  group_by(name_crop_earthstat, name_chemclass, name_cropgroup, cropsum, cropcount) %>%
+  summarize(summass = sum(applied_mass_kkg), count = n()) %>%
+  mutate(massratio = round(summass/cropsum,2), countratio = round(count/cropcount,2))
+
+# remove cas rn with names
+input_bayer_2018_cas <- input_bayer_2018_cas %>%
+  filter(casrn_chemical != "NAME")
+```
+
+```{r}
+input2020_chemclass <- input2020_cas %>%
+  group_by(casrn_chemical) %>%
+  summarize(count2020 = n_distinct(name_chemclass1))
+input_chemclass <- input_chemclass %>%
+  left_join(input2020_chemclass)
+
+write.csv(input_chemclass, "input_chemclass.csv")
+```
+
+
+#no need chemical included in cas already
+```{r}
+# left join to the def_chemical table, change if the parameter names change
+input_bayer_2018_chem <- input_bayer_2018_cas %>%
+  left_join(def_chemical, by = c("casrn_chemical" = "casrn_chemical"))
+
+
+unique(input_bayer_2018_chemna$casrn_chemical)
+# check if all active ingredients can be allocated
+# 
+input_bayer_2018_chemna <- input_bayer_2018_chem %>%
+  filter(is.na(name_ai))
+input_bayer_2018_chem$
+```
+
+
+#mode of action
+```{r}
+input2020_moa <- input2020_cas %>%
+  left_join(harmonization_moa, by = c("name_moa" = "name_moa"))
+
+# check if all mode of action can be allocated
+input2020_moana <- input2020_moa %>%
+  filter(is.na(name_moagroup))
+```
+
+```{r}
+# left join to the harmonization_bbch table, change if the parameter names change
+#n_distinct(input2020$name_cropstage)
+input2020_bbch <- input2020_moa %>%
+  left_join(harmonization_bbch, by = c("name_cropstage" = "name_cropstage"))
+
+# check if all crop stage can be allocated
+# currently remove all the records with unclear crop stage (838 records), not relating to the applied mass?
+input2020_bbchna <- input2020_bbch %>%
+  filter(is.na(code_bbch))
+
+
+# bbch2020 <- input2020_bbch %>%
+#   group_by(name_cropstage) %>%
+#   summarize(mass = sum(applied_mass_kkg), area = sum(treated_area_kha),count = n())
+# 
+# bbch2020_check <- bbch2020 %>%
+#   full_join(harmonization_bbch, by = c("name_cropstage" = "name_cropstage")) %>%
+#   select(name_cropstage, mass, area, count, bbch_group, min, max) %>%
+#   mutate(exist2020 = case_when(is.na(mass) ~ "n",
+#                            TRUE ~ "y"),
+#          exist2018 = case_when(is.na(bbch_group) ~ "n",
+#                                TRUE ~ "y"))
+#write.csv(bbch2020_check, "bbch2020_check.csv")
+
+```
+
+
+```{r}
+# left join to harmonization_app table, change if the parameter names change
+input2020_app <- input2020_bbch %>%
+  left_join(harmonization_app, by = c("name_app" = "name_app"))
+
+# check if all application methods can be allocated
+input2020_appna <- input2020_app %>%
+  filter(is.na(name_refapp))
+
+app2020 <- input2020_app %>%
+  group_by(name_app) %>%
+  summarize(mass = sum(applied_mass_kkg), area = sum(treated_area_kha),count = n())
+#                        
+# app2020_check <- app2020 %>%
+#   full_join(harmonization_app, by = c("name_app" = "name_app")) %>%
+#   select(name_app, mass, area, count, name_refapp) %>%
+#   mutate(exist2020 = case_when(is.na(mass) ~ "n",
+#                            TRUE ~ "y"),
+#          exist20182019 = case_when(is.na(name_refapp) ~ "n",
+#                                TRUE ~ "y"))
+# write.csv(app2020_check, "app2020_check.csv")
+```
+
+
+# input2020 chemical-country-crop group
+```{r}
+input2020_ccc <- input2020_app %>%
+  filter(name_country != "Spain") %>%
+  mutate(totalmass2020 = sum(applied_mass_kkg)) %>%
+  group_by(name_country) %>%
+  mutate(countrymass2020 = sum(applied_mass_kkg)) %>%
+  ungroup() %>%
+  group_by(name_ai, name_country, name_crop_earthstat, countrymass2020, totalmass2020) %>%
+  summarize(summass2020 = sum(applied_mass_kkg), count = n()) %>%
+  ungroup() %>%
+  mutate(countryratio2020 = round(summass2020/countrymass2020,2), totalratio2020 = round(summass2020/totalmass2020,2))
+  
+```
+
+
+```{r}
+input_bayer_2018_c <- input_bayer_2018_chem %>%
+  filter(!is.na(`treated_area_[1000ha/yr]`)) %>%
+  filter(`treated_area_[1000ha/yr]` != 0) %>%
+  filter(`applied_mass_[1000kg/yr]` != 0) %>%                                                                                                         
+  mutate(`dose_[kg/ha]` = round(`applied_mass_[1000kg/yr]`/`treated_area_[1000ha/yr]`,2)) %>%
+  select(id_bayer, id_scenariobayer, name_country, name_region, name_crop_bayer, name_crop_earthstat, name_crop_FAO, name_cropgroup.x, name_cropgroup.y, casrn_chemical, name_ai, name_cropstage,code_bbch_bayer, `treated_area_[1000ha/yr]`, name_indication, `applied_mass_[1000kg/yr]`, `dose_[kg/ha]`, Product, Distributor)
+```
+
+
+```{r}
+input2020_hist <- input2020_app %>%
+  left_join(spam_id, by = c("name_crop_earthstat" = "CROPNAME")) %>%
+  mutate(dose = round(applied_mass_kkg/treated_area_kha,3)) %>%
+  select(name_region, name_country, name_crop_earthstat, name_cropgroup, name_ai, casrn_chemical, name_indication, bbch_group, dose, applied_mass_kkg, treated_area_kha, name_group_yy)
+```
+
+```{r}
+
+input2020_cc <- input2020_hist %>%
+  group_by(name_ai, name_crop_earthstat, casrn_chemical) %>%
+  summarize(count = n())
+
+chemical <- "874967-67-6"
+crop <- "potato"
+cropgroup <- "Cereals"
+
+input2020_hist_chem <- input2020_hist %>%
+  #filter(casrn_chemical == chemical, name_crop_earthstat == crop) 
+  filter(casrn_chemical == chemical, name_crop_earthstat == crop)
+ggplot(input2020_hist_chem, aes(x = dose, fill = name_region)) +
+#ggplot(input2020_hist_chem, aes(x = dose, y=..scaled.., fill = name_region)) +
+  geom_density(alpha = .3)
+  #geom_histogram(binwidth = .5, position = "identity", alpha = .5)
+ggplot(input2020_hist_chem, aes(x = dose)) +
+  geom_density(alpha = .3)
+```
+
+```{r}
+input2020_quant <- input2020_hist %>%
+  filter(treated_area_kha != 0) %>%
+  group_by(name_ai, name_crop_earthstat, casrn_chemical) %>%
+  mutate(quant5 = round(quantile(dose, probs = 0.0035),3),
+         quant95 = round(quantile(dose, probs = 0.9965),3)) %>%
+  mutate(interval = case_when(dose <= quant95 & dose >= quant5 ~ "in",
+                              dose > quant95 ~ "higher",
+                              dose < quant5 ~ "lower",
+                              TRUE ~ "other"))
+
+
+input2020_quantregion <- input2020_quant %>%
+  group_by(name_region, name_ai, name_crop_earthstat, casrn_chemical) %>%
+  mutate(quant5region = round(quantile(dose, probs = 0.000355),3),
+         quant95region = round(quantile(dose, probs = 0.99655),3)) %>%
+  mutate(intervalregion = case_when(dose <= quant95region & dose >= quant5region ~ "in",
+                              dose > quant95region ~ "higher",
+                              dose < quant5region ~ "lower",
+                              TRUE ~ "other")) %>%
+  mutate(ratio5 = round(max(quant5region/quant5, quant5/quant5region),2), ratio95 = round(max(quant95region/quant95, quant95/quant95region),2))
+
+input2020_quantcountry <- input2020_quantregion %>%
+  group_by(name_country, name_ai, name_crop_earthstat, casrn_chemical) %>%
+  summarize(ratio5 = mean(ratio5), ratio95 = mean(ratio95)) %>%
+  filter(ratio5 > 5 | ratio95 > 5) %>%
+  group_by(name_country) %>%
+  summarize(count = n())
+
+ggplot(input2020_quantregion, aes(x = ratio5, y = ratio95, color = name_region)) +
+  geom_point()
+
+input2020_quant5region <- input2020_quantregion %>%
+  group_by(name_country) %>%
+  mutate(countcountry = n()) %>%
+  filter(interval == "lower") %>%
+  group_by(name_country, countcountry) %>%
+  summarize(countcountrylow = n()) %>%
+  mutate(ratio = round(countcountrylow/countcountry,2))
+
+input2020_quant95region <- input2020_quantregion %>%
+  group_by(name_country) %>%
+  mutate(countcountry = n()) %>%
+  filter(interval == "higher") %>%
+  group_by(name_country, countcountry) %>%
+  summarize(countcountrylow = n()) %>%
+  mutate(ratio = round(countcountrylow/countcountry,2))
+
+
+```
+# crop-country multiple source? 
+```{r}
+input2020_source <- input2020_crop %>%
+  left_join(harmonization_source, by = c("name_source" = "name_source"))
+input2020_sourcena <- input2020_source %>%
+  filter(is.na(name_sourcegroup))
+
+
+cropcountry2020_source <- input2020_crop %>%
+  group_by(name_country, name_crop_earthstat) %>%
+  summarize(count = n_distinct(name_source))
+
+source2020 <- input2020_source %>%
+  group_by(name_source) %>%
+  summarize(count2020 = n()) %>%
+  mutate(perc2020 = round(count2020/sum(count2020),2))
+  full_join(harmonization_source, by = c("name_source" = "name_source"))
+write.csv(source2020, "source2020.csv")
+```

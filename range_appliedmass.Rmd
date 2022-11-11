@@ -1,0 +1,71 @@
+---
+title: "range of applied mass/ha"
+output: html_notebook
+---
+
+```{r}
+range_massperha <- input_bayer_2018_6 %>%
+  select(id_bayer, id_scenariobayer, name_country, name_crop_bayer, name_crop, name_activetype, name_ai, name_indication, name_cropstage, name_indication, code_bbch, `applied_mass_[1000kg/yr]`, `treated_area_[1000ha/yr]`, casrn_chemical, Product, `Distributor Group`) %>%
+  mutate(massperha = `applied_mass_[1000kg/yr]`/`treated_area_[1000ha/yr]`)
+```
+
+```{r}
+range_massperha_group <- range_massperha %>%
+  group_by(name_country, name_crop, casrn_chemical, code_bbch) %>%
+  summarize(min = min(massperha), max = max(massperha), count = n_distinct(massperha))
+```
+
+```{r}
+range_massperha_groupsame <- range_massperha_group %>%
+  filter(count > 1) %>%
+  filter(round(min, digits = 3) == round(max, digits = 3))
+```
+
+```{r}
+range_massperha_groupsame %>%
+  filter(casrn_chemical == "12071-83-9") %>%
+  ggplot(., aes(x = code_bbch, y = max, color = name_crop, group = name_crop)) +
+  geom_line(color="grey") +
+  geom_point() +
+  #geom_smooth(method=lm) +
+  theme_ipsum() +
+  ggtitle("massperha vs. bbch") +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+```
+
+
+
+```{r}
+input_bayer_2018_6 %>%
+  filter(name_country == "United Kingdom", name_crop_bayer == "BARLEY-SPRING", casrn_chemical == "10028-22-5")
+```
+
+```{r}
+range_massperha <- input_bayer_2018_6 %>%
+  select(id_bayer, id_scenariobayer, name_country, name_crop_bayer, name_crop, name_activetype, name_ai, name_indication, name_cropstage, name_indication, code_bbch, `applied_mass_[1000kg/yr]`, `treated_area_[1000ha/yr]`, casrn_chemical, Product, `Distributor Group`) %>%
+  mutate(massperha = `applied_mass_[1000kg/yr]`/`treated_area_[1000ha/yr]`)
+```
+
+```{r}
+range_massperha_groupproduct <- range_massperha %>%
+  group_by(name_country, name_crop, casrn_chemical, Product) %>%
+  summarize(min = min(massperha), max = max(massperha), count = n_distinct(massperha))
+```
+
+```{r}
+range_massperha_groupsameproduct <- range_massperha_groupproduct %>%
+  filter(count > 1) %>%
+  filter(round(min, digits = 3) == round(max, digits = 3))
+```
+
+```{r}
+range_massperha_groupsame %>%
+  filter(casrn_chemical == "12071-83-9") %>%
+  ggplot(., aes(x = code_bbch, y = max, color = name_crop, group = name_crop)) +
+  geom_line(color="grey") +
+  geom_point() +
+  #geom_smooth(method=lm) +
+  theme_ipsum() +
+  ggtitle("massperha vs. bbch") +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+```

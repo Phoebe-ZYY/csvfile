@@ -1,0 +1,2030 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+# set options
+options(stringsAsFactors = F)         # no automatic data transformation
+options("scipen" = 100, "digits" = 4) # suppress math annotation
+op <- options(gvis.plot.tag='chart')  # set gViz options
+# install libraries
+install.packages(c("OpenStreetMap", "DT", "RColorBrewer", "mapproj", "sf", "RgoogleMaps", 
+                   "scales", "rworldmap", "maps", "tidyverse", "rnaturalearth", 
+                   "rnaturalearthdata", "rgeos", "ggspatial", "maptools", "leaflet", "sf", 
+                   "tmap", "here", "rgdal", "scales"))
+# install package from github
+devtools::install_github("dkahle/ggmap", ref = "tidyup")
+install.packages(c("cowplot", "googleway", "ggplot2", "ggrepel", 
+"ggspatial", "libwgeom", "sf", "rnaturalearth", "rnaturalearthdata"))
+```
+
+
+
+```{r}
+library(raster)
+
+abaca <- raster("/Users/yuyue/Documents/Research/map/cropmap/HarvestedAreaYield175Crops_Geotiff/abaca_HarvAreaYield_Geotiff/abaca_HarvestedAreaFraction.tif")
+abaca <- rasterToPoints(abaca)
+abaca <- as.data.frame(abaca)
+plot(abaca)
+
+```
+
+```{r}
+abaca_pre <- ggplot(abaca, aes(x = x, y = y, colour = abaca_HarvestedAreaHectares)) +
+    geom_point()
+
+library(rworldmap)
+# get map
+worldmap <- getMap(resolution = "coarse")
+
+plot(worldmap, col = "lightgrey", 
+     fill = T, border = "darkgray",
+     xlim = c(-180, 180), ylim = c(-90, 90),
+     bg = "aliceblue",
+     asp = 1, wrap=c(-180,180))
+# add points
+points(abaca$x, abaca$y, fill
+       col = "red", cex = .01)
+
+abaca_pre
+```
+
+
+```{r}
+library("ggplot2")
+theme_set(theme_bw())
+library("sf")
+library("rnaturalearth")
+library("rnaturalearthdata")
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+class(world)
+
+abaca_pre <- abaca %>%
+    filter(abaca_HarvestedAreaFraction != 0)
+
+
+ggplot(data = world) +
+    geom_sf() +
+    geom_point(data = abaca_pre, aes(x = x, y = y, color = as.factor(abaca_HarvestedAreaHectares)), size = 0.007, shape = 15) +
+    coord_sf(xlim = c(0, 180), ylim = c(-90, 90), expand = FALSE) #+
+    #scale_colour_brewer(palette="PuRd")
+```
+
+```{r}
+world <- map_data("world")
+
+ggplot() +
+  geom_map(
+    data = world, map = world,
+    aes(long, lat, map_id = region),
+    color = "black", fill = "lightgray", size = 0.1) +
+  geom_point(
+    data = abaca_pre,
+    aes(x = x, y = y, color = abaca_HarvestedAreaFraction),
+    alpha = 0.7, size = 0.007, shape = 15) +
+    scale_colour_gradient(low = muted("red"), high = muted("blue"))
+```
+
+```{r}
+library(sp)
+library(rworldmap)
+
+# The single argument to this function, points, is a data.frame in which:
+#   - column 1 contains the longitude in degrees
+#   - column 2 contains the latitude in degrees
+coords2country = function(points)
+{  
+  countriesSP <- getMap(resolution='low')
+  #countriesSP <- getMap(resolution='high') #you could use high res map from rworldxtra if you were concerned about detail
+
+  # convert our list of points to a SpatialPoints object
+
+  # pointsSP = SpatialPoints(points, proj4string=CRS(" +proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0"))
+
+  #setting CRS directly to that from rworldmap
+  pointsSP = SpatialPoints(points, proj4string=CRS(proj4string(countriesSP)))  
+
+
+  # use 'over' to get indices of the Polygons object containing each point 
+  indices = over(pointsSP, countriesSP)
+
+  # return the ADMIN names of each country
+  indices$ADMIN  
+  #indices$ISO3 # returns the ISO3 code 
+  #indices$continent   # returns the continent (6 continent model)
+  #indices$REGION   # returns the continent (7 continent model)
+}
+
+library(maps)
+
+abaca_pre$Country <- maps::map.where(database="world", abaca_pre$x, abaca_pre$y)
+
+unique(abaca_pre$Country)
+```
+
+
+```{r}
+library(geonames)
+library(ISOcodes)
+library(purrr)
+options(geonamesUsername="myusername")
+
+abaca_pre_test <- head(abaca_pre, 100)
+
+abaca_pre_countrycode <- map2_dfr(
+  abaca_pre_test[["y"]], 
+  abaca_pre_test[["x"]], 
+  .f = GNcountryCode, 
+  radius = 10
+)
+my_ports_countrycode
+
+
+sfRegion <- st_as_sf(abaca_pre, coords=c('x', 'y'))
+sfCountry <- ne_countries(returnclass='sf')
+sfJoined <- st_join(sfCountry, sfRegion)
+unique(sfRegion$Country)
+```
+
+```{r}
+library("raster")
+r = raster("/Users/yuyue/Downloads/pcam_mean_2014.nc", band = 3)
+plot(r)
+r
+
+r.grid <- expand.grid(lon = seq(-180, 180, 1), lat = seq(-90, 90, 1))
+r.pred.2 <- disaggregate(r, fact = 2, method = "bilinear")
+
+r.pred.2
+r.pred.w <- as.data.frame(r.pred.2)
+r.df = raster::as.data.frame(r, xy = TRUE)
+r.pred.w.df = raster::as.data.frame(r.pred.2, xy = TRUE)
+```
+
+```{r}
+r = raster("/Users/yuyue/Downloads/GFSAD1KCD.2010.001.2016348142525.tif")
+r <- as.data.frame(r)
+plot(r)
+```
+
+
+```{r}
+spam2010 <- read_csv("/Users/yuyue/Documents/Research/map/cropmap/spam2010v2r0_global_harv_area.csv/spam2010V2r0_global_H_TA.csv")
+spam2005 <- read_csv("/Users/yuyue/Documents/Research/map/cropmap/spam2005v3r2_global_harv_area.csv/spam2005V3r2_global_H_TA.csv")
+spam_full <- spam2010 %>%
+  full_join(spam2005, by = c("alloc_key"))
+
+
+spam2010 <- read_csv("/Users/yuyue/Documents/Research/map/cropmap/spam2010v2r0_global_harv_area.csv/spam2010V2r0_global_H_TA.csv")
+spam2005 <- read_csv("/Users/yuyue/Documents/Research/map/cropmap/spam2005v3r2_global_harv_area.csv/spam2005V3r2_global_H_TA.csv")
+spam2010_whea <- spam2010 %>%
+  select(x, y, whea_a)
+r <- raster(extent(-180, 180, -90,90), resolution = 1/12) 
+
+spam2005_whea <- spam_full %>%
+  select(x, y, whea_a.y)
+r2 <- raster(extent(-180, 180, -90,90), resolution = 1/12) 
+
+#colnames(spam2010_raster) <- c('X', 'Y', 'whea_a','rice_a')
+spam2010_whea <- data.matrix(spam2010_whea)
+spam2005_whea <- data.matrix(spam2005_whea)
+
+# set up an 'empty' raster, here via an extent object derived from your data
+e <- extent(spam2010_whea[,1:2])
+e2 <- spam2010_whea + 1000 # add this as all y's are the same
+
+e2 <- extent(spam2005_whea[,1:2])
+e2 <- spam2005_whea + 1000 # add this as all y's are the same
+
+r <- raster(extent(-180, 180, -90,90), resolution = 1/12)
+# or r <- raster(xmn=, xmx=,  ...
+
+# you need to provide a function 'fun' for when there are multiple points per cell
+whea_2010 <- rasterize(spam2010_whea[, 1:2], r, spam2010_whea[,3], fun=mean)
+whea_2010
+whea_2005 <- rasterize(spam2005_whea[, 1:2], r, spam2005_whea[,3], fun=mean)
+whea_2005
+
+plot(x)
+x.df = raster::as.data.frame(x, xy = TRUE)
+
+
+join <- stack(list(spam2010_tif, landevap.dis))
+```
+
+```{r}
+world <- map_data("world")
+
+ggplot() +
+  geom_map(
+    data = world, map = world,
+    aes(long, lat, map_id = region),
+    color = "black", fill = "lightgray", size = 0.1) +
+  geom_point(
+    data = spam2010,
+    aes(x = x, y = y, color = whea_a),
+    alpha = 0.7, size = 0.007, shape = 15) +
+    scale_colour_gradient(low = muted("red"), high = muted("blue"))
+```
+
+
+```{r}
+country_area <- spam2010 %>%
+    group_by(name_cntr) %>%
+    summarize(sumwhea = sum(whea_a)/1000, sumvege = sum(vege_a)/1000)
+
+country_mass <- input_bayer_2018_final %>%
+    group_by(name_country, name_ai, name_crop) %>%
+    summarize(summass = sum(`applied_mass_[1000kg/yr]`))
+```
+
+```{r}
+unique(spam2010$name_cntr)
+```
+
+rows per country
+```{r}
+rowpercountry <- spam2010 %>%
+    group_by(name_cntr) %>%
+    summarize(count = n())
+```
+
+```{r}
+#too small resolution
+fieldsize <- raster("/Users/yuyue/Documents/Research/map/field_size_10_40_cropland/field_size_10_40_cropland.img")
+fieldsize <- rasterToPoints(fieldsize)
+fieldsize <- as.data.frame(fieldsize)
+# too small resolution
+fieldsize <- raster("/Users/yuyue/Documents/Research/map/Global Field Sizes/dominant_field_size_categories.tif")
+fieldsize <- rasterToPoints(fieldsize)
+fieldsize <- as.data.frame(fieldsize)
+plot(fieldsize)
+rm(abaca)
+
+
+
+fieldsize
+fieldsize.agg <- aggregate(fieldsize, fact = 2, method = "bilinear")
+fieldsize.agg <- aggregate(fieldsize, fact = 15, method = "bilinear")
+fieldsize = extend(fieldsize, r)
+fieldsize.agg <- rasterToPoints(fieldsize.agg)
+fieldsize.agg <- as.data.frame(fieldsize.agg)
+fieldsize.agg
+
+landevap <- raster("/Users/yuyue/Documents/Research/map/REA_2017_mon.nc", band = 1)
+landevap
+landevap = raster::as.data.frame(landevap, xy = TRUE)
+landevap.dis <- disaggregate(landevap, fact = 3, method = "bilinear")
+landevap.dis
+landevap.dis = raster::as.data.frame(landevap.dis, xy = TRUE)
+
+
+gsoc <- raster("/Users/yuyue/Documents/Research/map/GSOCmap1.5.0.tif")
+gsoc = raster::as.data.frame(gsoc, xy = TRUE)
+
+rasterOptions()
+```
+
+```{r}
+# hack raster internal function
+cs_orig <- raster:::.chunk
+cs_hack <- function(x) getOption("rasterMaxmemory")
+assignInNamespace(".chunk", cs_hack, ns = "raster")
+
+# use 1 kb chunks
+rasterOptions(chunksize = 1000, todisk = TRUE)
+t_smallchunks <- system.time(calc(r, mean, na.rm = TRUE))
+
+# undo the hack
+assignInNamespace(".chunk", cs_orig, ns = "raster")
+rasterOptions(default = TRUE)
+```
+
+```{r}
+spam2010_tif <- raster("/Users/yuyue/Documents/Research/map/spam2010v2r0_global_harv_area.geotiff/spam2010V2r0_global_H_ACOF_A.tif")
+spam2010_tif
+spam2010_tif <- rasterToPoints(spam2010_tif)
+spam2010_tif <- as.data.frame(spam2010_tif)
+spam2010_tif <- spam2010_tif %>%
+  mutate(x1 = as.numeric(format(round(x, 4), nsmall = 4))) %>%
+  mutate(y1 = as.numeric(format(round(y, 4), nsmall = 4)))
+```
+
+```{r}
+landevap.dis <- landevap.dis %>%
+  mutate(x1 = as.numeric(format(round(x, 4), nsmall = 4))) %>%
+  mutate(y1 = as.numeric(format(round(y, 4), nsmall = 4)))
+spam2010_tif_join <- spam2010_tif %>%
+  left_join(landevap.dis, by = c("x1", "y1"))
+
+e <- extent(-180, 180, -90, 90)
+spam2010_tif = extend(spam2010_tif, e)
+spam2010_tif
+
+landevap.dis = extend(landevap.dis, e)
+landevap.dis
+landevap.dis.df <- raster::as.data.frame(landevap.dis, xy = TRUE)
+
+join <- stack(list(spam2010_tif, landevap.dis))
+join
+join.df = raster::as.data.frame(join, xy = TRUE)
+join.df <- join.df %>%
+  mutate(landevap = as.numeric(format(round(Variable, 2), nsmall = 2))) %>%
+  mutate(x1 = as.numeric(format(round(x, 4), nsmall = 4))) %>%
+  mutate(y1 = as.numeric(format(round(y, 4), nsmall = 4)))
+
+spam2010 <- spam2010 %>%
+  mutate(x1 = as.numeric(format(round(x, 4), nsmall = 4))) %>%
+  mutate(y1 = as.numeric(format(round(y, 4), nsmall = 4)))
+unique(join.df$landevap) 
+
+spam2010_join <- spam2010 %>%
+  left_join(join.df, by = c("x1", "y1"))
+
+spam2010_raster <- rasterFromXYZ(spam2010, res = c("x","y"))
+
+spam2010_raster <- spam2010 %>%
+  select(x, y, whea_a) %>%
+  mutate(whea_a = as.numeric(whea_a), x = as.numeric(x), y = as.numeric(y))
+spam2010_raster <- rasterFromXYZ(spam2010_raster, res = c("x","y"), digits = 4)
+```
+
+#check changes spam cropmap 2000, 2005, 2010
+```{r}
+spam2000 <- fread("C:/me/map/cropmap/spam2000v3.0.7_global_phys_area.csv/spam2000v3.0.7_global_phys_area.csv")
+spam2005 <- fread("C:/me/map/cropmap/spam2005v3r2_global_phys_area.csv/spam2005V3r2_global_A_TA.csv")
+spam2010 <- fread("C:/me/map/cropmap/spam2010v2r0_global_phys_area.csv/spam2010V2r0_global_A_TA.csv")
+spam2000_crop <- spam2000 %>%
+  select(alloc_key, whea)
+spam2005_crop <- spam2005 %>%
+  select(cell5m, whea_a)
+spam2010_crop <- spam2010 %>%
+  select(iso3, name_cntr, alloc_key,cell5m, whea_a, x, y)
+spam_crop <- spam2010_crop %>%
+  left_join(spam2000_crop, by = c("alloc_key")) %>%
+  left_join(spam2005_crop, by = c("cell5m"))
+
+
+# new grids
+spam_crop2000_mass <- spam_crop %>%
+  filter(!is.na(whea)) %>%
+  filter(whea != 0)
+spam_crop2000_mass0 <- spam_crop %>%
+  filter(!is.na(whea)) %>%
+  filter(whea == 0)
+
+spam_crop2005_mass <- spam_crop %>%
+  filter(!is.na(whea_a.y)) %>%
+  filter(whea_a.y != 0)
+spam_crop2005_mass0 <- spam_crop %>%
+  filter(!is.na(whea_a.y)) %>%
+  filter(whea_a.y == 0)
+
+spam_crop2010_mass <- spam_crop %>%
+  filter(whea_a.x != 0)
+spam_crop2010_mass0 <- spam_crop %>%
+  filter(whea_a.x == 0)
+  
+spam_cropna <- spam_crop %>%
+  filter(is.na(whea)) %>%
+  filter(!is.na(whea_a.y)) %>%
+  filter(whea_a.y != 0)
+
+
+p <- ggplot() +
+  geom_map(
+    data = world, map = world,
+    aes(long, lat, map_id = region),
+    color = "white" , fill = "lightgray", size = 0.1
+  ) +
+  geom_point(
+    data = spam_crop2000_mass0,
+    aes(x = x, y = y),color = "grey75",
+    alpha = 0.1, size = 0.00001, shape = 15
+  ) +
+  geom_point(
+    data = spam_crop2000_mass,
+    aes(x = x, y = y, color = whea),
+    alpha = 0.1, size = 0.00001, shape = 15
+  ) +
+  scale_color_continuous(low = "goldenrod2", high = "blue", trans = "log", breaks = c(0.01, 0.1, 1, 100, 3000), labels = c(0.01, 0.1, 1, 100, 3000)) +
+  theme_bw() +
+  #theme(legend.postion = "none") +
+  theme(axis.text = element_blank()) +
+  theme(axis.title = element_blank())
+p
+
+# exist or not on one grid
+spam_crop_both <- spam_crop %>%
+  filter(!is.na(whea_a.y)) %>%
+  mutate(diff = whea_a.x - whea_a.y) %>%
+  mutate(change = case_when(whea_a.y == 0 & whea_a.x != 0 ~ "2010",
+                            whea_a.y ==0 & whea_a.x == 0 ~ "both no",
+                            whea_a.y != 0 & whea_a.x == 0 ~"2005",
+                            whea_a.y != 0 & whea_a.x != 0 ~ "both"))
+
+spam_crop_both <- spam_crop %>%
+  filter(!is.na(whea)) %>%
+  mutate(diff = whea_a.x - whea) %>%
+  mutate(change = case_when(whea == 0 & whea_a.x != 0 ~ "2010",
+                            whea ==0 & whea_a.x == 0 ~ "both no",
+                            whea != 0 & whea_a.x == 0 ~"2000",
+                            whea != 0 & whea_a.x != 0 ~ "both"))
+
+p <- ggplot() +
+  geom_map(
+    data = world, map = world,
+    aes(long, lat, map_id = region),
+    color = "white" , fill = "lightgray", size = 0.1
+  ) +
+  geom_point(
+    data = spam_crop_both,
+    aes(x = x, y = y, color = change),
+    alpha = 0.1, size = 0.00001, shape = 15
+  ) +
+  scale_color_viridis(discrete = TRUE) +
+  theme_bw() +
+  #theme(legend.postion = "none") +
+  theme(axis.text = element_blank()) +
+  theme(axis.title = element_blank()) + 
+  guides(colour = guide_legend(override.aes = list(size=4, alpha = 1)))
+p
+
+
+# value change on one grid
+spam_crop_both <- spam_crop %>%
+  filter(!is.na(whea_a.y)) %>%
+  filter(whea_a.x != 0 & whea_a.y != 0) %>%
+  mutate(diff = whea_a.x / whea_a.y) 
+
+spam_crop_both <- spam_crop %>%
+  filter(!is.na(whea_a.y)) %>%
+  filter(whea_a.x != 0 & whea != 0) %>%
+  mutate(diff = whea_a.x / whea) 
+
+spam_crop_both %>%
+  ggplot(aes(x = diff)) +
+  geom_histogram() +
+  scale_x_continuous(trans = log2_trans(),
+    breaks = trans_breaks("log2", function(x) 2^x),
+    labels = trans_format("log2", math_format(2^.x))) +
+  annotation_logticks()
+
+p <- ggplot() +
+  geom_map(
+    data = world, map = world,
+    aes(long, lat, map_id = region),
+    color = "white" , fill = "lightgray", size = 0.1
+  ) +
+  geom_point(
+    data = spam_crop_both,
+    aes(x = x, y = y, color = diff),
+    alpha = 0.1, size = 0.00001, shape = 15
+  ) +
+  scale_color_continuous(low = "goldenrod2", high = "blue", trans = "log", breaks = c(0.01, 0.1, 1, 100), labels = c(0.01, 0.1, 1, 100)) +
+  theme_bw() +
+  #theme(legend.postion = "none") +
+  theme(axis.text = element_blank()) +
+  theme(axis.title = element_blank())
+p
+
+#check for country-crop overall area
+spam2010_wide <- spam2010 %>%
+  dplyr::select(x, y, name_cntr,whea_a, rice_a, maiz_a, barl_a, pmil_a, smil_a, sorg_a, ocer_a, pota_a, swpo_a, yams_a, cass_a, orts_a, bean_a, chic_a, cowp_a, pige_a, lent_a, opul_a, soyb_a, grou_a, cnut_a, oilp_a, sunf_a, rape_a, sesa_a, ooil_a, sugc_a, sugb_a, cott_a, ofib_a, acof_a, rcof_a, coco_a, teas_a, toba_a, bana_a, plnt_a, trof_a,  temf_a, vege_a, rest_a)
+spam2010_long <- melt(spam2010_wide, id.vars = c("x", "y","name_cntr"),
+                measure.vars = c("whea_a", "rice_a", "maiz_a", "barl_a", "pmil_a", "smil_a", "sorg_a", "ocer_a", "pota_a", "swpo_a", "yams_a", "cass_a", "orts_a", "bean_a", "chic_a", "cowp_a", "pige_a", "lent_a", "opul_a", "soyb_a", "grou_a", "cnut_a", "oilp_a", "sunf_a", "rape_a", "sesa_a", "ooil_a", "sugc_a", "sugb_a", "cott_a", "ofib_a", "acof_a", "rcof_a", "coco_a", "teas_a", "toba_a","bana_a", "plnt_a", "trof_a",  "temf_a", "vege_a", "rest_a"))
+
+spam2010_country <- spam2010_long %>%
+  group_by(name_cntr, variable) %>%
+  summarize(area2010 = sum(value, na.rm = TRUE))%>%
+  filter(area2010 !=0)
+
+spam2005_wide <- spam2005 %>%
+  dplyr::select(name_cntr,whea_a, rice_a, maiz_a, barl_a, pmil_a, smil_a, sorg_a, ocer_a, pota_a, swpo_a, yams_a, cass_a, orts_a, bean_a, chic_a, cowp_a, pige_a, lent_a, opul_a, soyb_a, grou_a, cnut_a, oilp_a, sunf_a, rape_a, sesa_a, ooil_a, sugc_a, sugb_a, cott_a, ofib_a, acof_a, rcof_a, coco_a, teas_a, toba_a, bana_a, plnt_a, trof_a,  temf_a, vege_a, rest_a)
+spam2005_long <- melt(spam2005_wide, id.vars = c("name_cntr"),
+                measure.vars = c("whea_a", "rice_a", "maiz_a", "barl_a", "pmil_a", "smil_a", "sorg_a", "ocer_a", "pota_a", "swpo_a", "yams_a", "cass_a", "orts_a", "bean_a", "chic_a", "cowp_a", "pige_a", "lent_a", "opul_a", "soyb_a", "grou_a", "cnut_a", "oilp_a", "sunf_a", "rape_a", "sesa_a", "ooil_a", "sugc_a", "sugb_a", "cott_a", "ofib_a", "acof_a", "rcof_a", "coco_a", "teas_a", "toba_a","bana_a", "plnt_a", "trof_a",  "temf_a", "vege_a", "rest_a"))
+
+spam2005_country <- spam2005_long %>%
+  group_by(name_cntr, variable) %>%
+  summarize(area2005 = sum(value, na.rm = TRUE))  %>%
+  filter(area2005 !=0)
+
+spam_country <- spam2005_country %>%
+  full_join(spam2010_country, by = c("name_cntr", "variable")) %>%
+  filter(!is.na(area2005)) %>%
+  filter(!is.na(area2010)) %>%
+  mutate(ratio = area2010/area2005)
+
+spam_country %>%
+  filter(ratio < 30) %>%
+  mutate(outlier = case_when(ratio > 5 ~ "outlier",
+                             ratio < 0.2 ~ "outlier",
+                             TRUE ~ "no")) %>%
+  ggplot(aes(x= reorder(row.names(.), ratio),y = ratio)) +
+  geom_point() +
+  xlab("ratio2010/2005") +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  geom_hline(yintercept = 5, color = "red") +
+  geom_hline(yintercept = 0.2, color = "red") +
+  geom_hline(yintercept = 1) +
+  scale_y_continuous(breaks = c(0,0,2,1,5,10))
+  scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x)))
+
+ggsave("20221109spam_ratiochange.png")
+  
+spam_countrymass %>%
+  ggplot(aes(x = ratio)) +
+  geom_histogram() #+
+  #scale_x_continuous(trans = log2_trans(),
+    #breaks = trans_breaks("log2", function(x) 2^x),
+    #labels = trans_format("log2", math_format(2^.x))) +
+  #annotation_logticks()
+
+spam_country_outlier <- spam_country %>%
+  filter(ratio > 3 | ratio < 1/3)
+write.csv(spam_country_outlier, "20221109spam_countrycropoutlier.csv")
+
+  spam_country_no2005 <- spam_country %>%
+    filter(is.na(area2005))
+  
+spam2010_countrymass <- spam2010_long %>%
+  group_by(name_cntr) %>%
+  summarize(area2010 = sum(value, na.rm = TRUE))%>%
+  filter(area2010 !=0)
+spam2005_countrymass <- spam2005_long %>%
+  group_by(name_cntr) %>%
+  summarize(area2005 = sum(value, na.rm = TRUE))  %>%
+  filter(area2005 !=0)
+spam_countrymass <- spam2005_countrymass %>%
+  full_join(spam2010_countrymass, by = c("name_cntr")) %>%
+  filter(!is.na(area2005)) %>%
+  filter(!is.na(area2010)) %>%
+  mutate(ratio = area2010/area2005)
+  
+table(spam_crop_both$change)
+unique(spam2010$iso3)
+```
+
+
+
+```{r}
+library(sp)
+library(raster)
+library(tidyverse)
+
+spam2010 <- read_csv("C:/me/map/cropmap/spam2010v2r0_global_harv_area.csv/spam2010V2r0_global_H_TA.csv")
+spam2010 <- fread("C:/me/map/cropmap/spam2010v2r0_global_phys_area.csv/spam2010V2r0_global_A_TA.csv")
+spam2010_ha <- fread("C:/me/map/cropmap/spam2010v2r0_global_harv_area.csv/spam2010V2r0_global_H_TA.csv")
+unique(spam2010$name_cntr)
+spam_country <- spam2010 %>%
+  group_by(iso3, name_cntr) %>%
+  summarize(n = n()) %>%
+  ungroup() %>%
+  dplyr::select(iso3, name_cntr)
+spam2010_raster <- spam2010 %>%
+  dplyr::select(x, y, whea_a, rice_a, maiz_a, barl_a, pmil_a, smil_a, sorg_a, ocer_a, pota_a, swpo_a, yams_a, cass_a, orts_a, bean_a, chic_a, cowp_a, pige_a, lent_a, opul_a, soyb_a, grou_a, cnut_a, oilp_a, sunf_a, rape_a, sesa_a, ooil_a, sugc_a, sugb_a, cott_a, ofib_a, acof_a, rcof_a, coco_a, teas_a, toba_a, bana_a, plnt_a, trof_a,  temf_a, vege_a, rest_a, name_cntr)
+spam2010_raster_ha <- spam2010_ha %>%
+  dplyr::select(x, y, whea_a, rice_a, maiz_a, barl_a, pmil_a, smil_a, sorg_a, ocer_a, pota_a, swpo_a, yams_a, cass_a, orts_a, bean_a, chic_a, cowp_a, pige_a, lent_a, opul_a, soyb_a, grou_a, cnut_a, oilp_a, sunf_a, rape_a, sesa_a, ooil_a, sugc_a, sugb_a, cott_a, ofib_a, acof_a, rcof_a, coco_a, teas_a, toba_a, bana_a, plnt_a, trof_a,  temf_a, vege_a, rest_a, name_cntr)
+r <- raster(extent(-180, 180, -90,90), resolution = 1/12) 
+
+spam_country <- read_xlsx("C:/me/Database/harmonization/harmonization_country.xlsx", sheet = 3)
+spam_country <- data.frame(country = unique(spam_country$iso3), id = 1)
+world_map <- map_data(map = "world")
+world_map$region <- iso3166
+
+malMap <- joinCountryData2Map(country_list, joinCode = "ISO3", nameJoinColumn = "country")
+mapCountryData(malMap, nameColumnToPlot = "id", catMethod = "categorical", missingCountryCol = gray(.8), colourPalette = c("red", "blue", "orange"))
+
+bayer_country <- read_xlsx("C:/me/Database/harmonization/harmonization_country.xlsx", sheet = 2)
+bayer_country <- data.frame(country = unique(bayer_country$ISO3), id = 2)
+
+
+country_list <- spam_country %>%
+  full_join(bayer_country, by = c("country" = "country")) 
+country_list <- country_list%>%
+  mutate(id = case_when(is.na(id.y) & id.x == 1 ~ "in crop map",
+                        is.na(id.x) ~ "in bayer map",
+                        TRUE ~ "both"))
+
+spam2010
+#colnames(spam2010_raster) <- c('X', 'Y', 'whea_a','rice_a')
+spam2010_matrix <- data.matrix(spam2010_raster)
+bayermap <- joinCountryData2Map(harmonization_country,joinCode = "UN", nameJoinColumn = "name_country")
+mapCountryData(bayermap, catMethod = "categorical", missingCountryCol = gray(.8))
+
+# set up an 'empty' raster, here via an extent object derived from your data
+e <- extent(spam2010_matrix[,1:2])
+e <- spam2010_matrix + 1000 # add this as all y's are the same
+
+r <- raster(extent(-180, 180, -90,90), resolution = 1/12)
+# or r <- raster(xmn=, xmx=,  ...
+
+# you need to provide a function 'fun' for when there are multiple points per cell
+x <- rasterize(spam2010_matrix[, 1:2], r, spam2010_matrix[,3:10], fun=mean)
+x
+x1 <- rasterize(spam2010_matrix[, 1:2], r, spam2010_matrix[,11:20], fun=mean)
+x1
+x2 <- rasterize(spam2010_matrix[, 1:2], r, spam2010_matrix[,21:30], fun=mean)
+x2
+x3 <- rasterize(spam2010_matrix[, 1:2], r, spam2010_matrix[,31:43], fun=mean)
+x3
+plot(x)
+x.df = raster::as.data.frame(x, xy = TRUE)
+
+join <- stack(list(x, x1, x2, x3, climatezone))
+join.df = raster::as.data.frame(join, xy = TRUE)
+join.df_clean <- join.df %>%
+  filter(!is.na(whea_a))
+
+join <- stack(list(spam2010_tif, landevap.dis))
+```
+
+#check with FAO harvested area
+```{r}
+spam2010_m <- read.csv("20221007spam2010_long_ratio.csv")
+spam2010_m <- melt(spam2010, id.vars = c("x", "y","name_cntr"),
+                measure.vars = c("whea_a", "rice_a", "maiz_a", "barl_a", "pmil_a", "smil_a", "sorg_a", "ocer_a", "pota_a", "swpo_a", "yams_a", "cass_a", "orts_a", "bean_a", "chic_a", "cowp_a", "pige_a", "lent_a", "opul_a", "soyb_a", "grou_a", "cnut_a", "oilp_a", "sunf_a", "rape_a", "sesa_a", "ooil_a", "sugc_a", "sugb_a", "cott_a", "ofib_a", "acof_a", "rcof_a", "coco_a", "teas_a", "toba_a","bana_a", "plnt_a", "trof_a",  "temf_a", "vege_a", "rest_a"))
+spam2010_country <- spam2010_m %>%
+  filter(adjustedarea != 0) %>%
+  group_by(name_cntr, variable) %>%
+  mutate(variable = str_remove(variable, "_a")) %>%
+  summarize(sumarea = sum(value)) %>%
+  left_join(spam_id, by = c("variable" = "Short Name")) %>%
+  select(name_cntr, `Long Name`, sumarea) %>%
+  mutate(name_cntr = case_when(name_cntr == "Antigua And Barbuda" ~ "Antigua and Barbuda",
+                               name_cntr == "Bolivia" ~ "Bolivia (Plurinational State of)",
+                               name_cntr == "Bosnia And Herzegovina" ~ "Bosnia and Herzegovina",
+                               name_cntr == "Cape Verde" ~ "Cabo Verde",
+                               name_cntr == "Ivory Coast" ~ "CÃ´te d'Ivoire",
+                               name_cntr == "Czech Republic" ~ "Czechia",
+                               name_cntr == "Dem People's Rep Of Korea" ~ "Democratic People's Republic of Korea",
+                               name_cntr == "Democratic Republic Of The Con" ~ "Democratic Republic of the Congo",
+                               name_cntr == "Guinea-bissau" ~ "Guinea-Bissau",
+                               name_cntr == "Iran  (islamic Republic Of)" ~ "Iran (Islamic Republic of)",
+                               name_cntr == "Lao People's Democratic Republ" ~ "Lao People's Democratic Republic",
+                               name_cntr == "Libyan Arab Jamahiriya" ~ "Libya",
+                               name_cntr == "Micronesia (federated States O" ~ "Micronesia (Federated States of)",
+                               name_cntr == "Republic Of Korea" ~ "Republic of Korea",
+                               name_cntr == "Republic Of Moldova" ~ "Republic of Moldova",
+                               name_cntr == "Saint Kitts And Nevis" ~ "Saint Kitts and Nevis",
+                               name_cntr == "Saint Vincent And The Grenadin" ~ "Saint Vincent and the Grenadines",
+                               name_cntr == "Sao Tome And Principe" ~ "Sao Tome and Principe",
+                               name_cntr == "The Former Yugoslav Republic O" ~ "North Macedonia",
+                               name_cntr == "Timor-leste" ~ "Timor-Leste",
+                               name_cntr == "Trinidad And Tobago" ~ "Trinidad and Tobago",
+                               name_cntr == "Turkey" ~ "TÃ¼rkiye",
+                               name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom of Great Britain and Northern Ireland",
+                               name_cntr == "United Republic Of Tanzania" ~ "United Republic of Tanzania",
+                               name_cntr == "United States Of America" ~ "United States of America",
+                               name_cntr == "Venezuela" ~ "Venezuela (Bolivarian Republic of)",
+                               TRUE ~ name_cntr)) %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea (the Republic of)",
+                                  name_cntr == "Iran  (islamic Republic Of)" ~ "Iran (Islamic Republic of)",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, the United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~"United States of America",
+                                  name_cntr == "Republic Of Moldova" ~ "Moldova (the Republic of)",
+                                  TRUE ~ name_cntr))
+
+spam2010_m_ha <- melt(spam2010_raster_ha, id.vars = c("x", "y","name_cntr"),
+                measure.vars = c("whea_a", "rice_a", "maiz_a", "barl_a", "pmil_a", "smil_a", "sorg_a", "ocer_a", "pota_a", "swpo_a", "yams_a", "cass_a", "orts_a", "bean_a", "chic_a", "cowp_a", "pige_a", "lent_a", "opul_a", "soyb_a", "grou_a", "cnut_a", "oilp_a", "sunf_a", "rape_a", "sesa_a", "ooil_a", "sugc_a", "sugb_a", "cott_a", "ofib_a", "acof_a", "rcof_a", "coco_a", "teas_a", "toba_a","bana_a", "plnt_a", "trof_a",  "temf_a", "vege_a", "rest_a"))
+spam2010_country_ha <- spam2010_m_ha %>%
+  group_by(name_cntr, variable) %>%
+  mutate(variable = str_remove(variable, "_a")) %>%
+  summarize(sumarea = sum(value)) %>%
+  left_join(spam_id, by = c("variable" = "Short Name")) %>%
+  select(name_cntr, `Long Name`, sumarea) %>%
+  mutate(name_cntr = case_when(name_cntr == "Antigua And Barbuda" ~ "Antigua and Barbuda",
+                               name_cntr == "Bolivia" ~ "Bolivia (Plurinational State of)",
+                               name_cntr == "Bosnia And Herzegovina" ~ "Bosnia and Herzegovina",
+                               name_cntr == "Cape Verde" ~ "Cabo Verde",
+                               name_cntr == "Ivory Coast" ~ "CÃ´te d'Ivoire",
+                               name_cntr == "Czech Republic" ~ "Czechia",
+                               name_cntr == "Dem People's Rep Of Korea" ~ "Democratic People's Republic of Korea",
+                               name_cntr == "Democratic Republic Of The Con" ~ "Democratic Republic of the Congo",
+                               name_cntr == "Guinea-bissau" ~ "Guinea-Bissau",
+                               name_cntr == "Iran  (islamic Republic Of)" ~ "Iran (Islamic Republic of)",
+                               name_cntr == "Lao People's Democratic Republ" ~ "Lao People's Democratic Republic",
+                               name_cntr == "Libyan Arab Jamahiriya" ~ "Libya",
+                               name_cntr == "Micronesia (federated States O" ~ "Micronesia (Federated States of)",
+                               name_cntr == "Republic Of Korea" ~ "Republic of Korea",
+                               name_cntr == "Republic Of Moldova" ~ "Republic of Moldova",
+                               name_cntr == "Saint Kitts And Nevis" ~ "Saint Kitts and Nevis",
+                               name_cntr == "Saint Vincent And The Grenadin" ~ "Saint Vincent and the Grenadines",
+                               name_cntr == "Sao Tome And Principe" ~ "Sao Tome and Principe",
+                               name_cntr == "The Former Yugoslav Republic O" ~ "North Macedonia",
+                               name_cntr == "Timor-leste" ~ "Timor-Leste",
+                               name_cntr == "Trinidad And Tobago" ~ "Trinidad and Tobago",
+                               name_cntr == "Turkey" ~ "TÃ¼rkiye",
+                               name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom of Great Britain and Northern Ireland",
+                               name_cntr == "United Republic Of Tanzania" ~ "United Republic of Tanzania",
+                               name_cntr == "United States Of America" ~ "United States of America",
+                               name_cntr == "Venezuela" ~ "Venezuela (Bolivarian Republic of)",
+                               TRUE ~ name_cntr)) %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea (the Republic of)",
+                                  name_cntr == "Iran  (islamic Republic Of)" ~ "Iran (Islamic Republic of)",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, the United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~"United States of America",
+                                  name_cntr == "Republic Of Moldova" ~ "Moldova (the Republic of)",
+                                  TRUE ~ name_cntr))
+
+fao_spam <- read_xlsx("C:/me/Database/harmonization/Crop_Data.xlsx", sheet = 2)
+spam_id <- read_xlsx("C:/me/Database/harmonization/Crop_Data.xlsx", sheet = 3)
+
+fao_spam_2010 <- read.csv("fao_spam.csv") 
+
+fao_m <- read.csv("FAOSTAT_data_2010cropharvested.csv")
+fao_m_2020 <- read.csv("FAOSTAT_data_2020cropharvested.csv")
+fao_m_c <- fao_m %>%
+  left_join(fao_spam_2010,by = c("Item" = "Item")) %>%
+  select(Area, Item, Value, Year, CROPNAME, name_group)
+fao_m_cspam <- fao_m_c %>%
+  group_by(Area, Year, name_group) %>%
+  summarize(summass = sum(Value))
+
+fao_m_c_2020 <- fao_m_2020 %>%
+  left_join(fao_spam_2010,by = c("Item" = "Item")) %>%
+  select(Area, Item, Value, Year, CROPNAME, name_group)
+fao_m_cspam_2020 <- fao_m_c_2020 %>%
+  group_by(Area, Year, name_group) %>%
+  summarize(summass = sum(Value))
+
+spam2010_fao <- spam2010_country %>%
+  filter(sumarea != 0) %>%
+  full_join(spam2010_country_ha, by = c("name_cntr", "Long Name")) %>%
+  full_join(fao_m_cspam, by = c("name_cntr" = "Area", "Long Name" = "name_group")) %>%
+  full_join(fao_m_cspam_2020, by = c("name_cntr" = "Area", "Long Name" = "name_group"))
+
+spam2010_fao_country <- spam2010_fao %>%
+  group_by(name_cntr) %>%
+  summarize(sumarea_spam_pa = sum(sumarea.x, na.rm = TRUE), sumarea_spam_ha = sum(sumarea.y, na.rm = TRUE), sumarea_fao_2010 = sum(summass.x, na.rm = TRUE), sumarea_fao_2020 = sum(summass.y, na.rm = TRUE)) #%>%
+  slice(101:212)
+
+  sum(spam2010_fao_country$sumarea_spam_ha)
+  sum(spam2010_fao_country$sumarea_fao_2010)
+  (sum(spam2010_fao_country$sumarea_fao_2020) -sum(spam2010_fao_country$sumarea_fao_2010))/sum(spam2010_fao_country$sumarea_fao_2010)
+  
+spam2010_fao_country_long <- melt(spam2010_fao_country, id.vars = c("name_cntr"), variable.name = "source")
+
+spam2010_fao_country_long %>%
+  ggplot(aes(fill = source, x = value, y = source))+
+  geom_bar(position = "dodge", stat = "identity") +
+  scale_fill_viridis(discrete = T, option = "E") +
+  ggtitle("fao spam crop area comparison 2010") +
+  facet_wrap(~name_cntr, scales = "free_x")+
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  theme_ipsum(base_size = 20) +
+  theme(strip.text.x = element_text(size=40))
+
+ggsave("20220805spam2010_fao_country_long200.png", width = 100, height = 100, unit = "cm")
+
+#country specific
+country <- "United States of America"
+spam2010_fao_unique <- spam2010_fao %>%
+  filter(sumarea.x != 0) %>%
+  filter(name_cntr == country) %>%
+  mutate(area_spam_pa = sumarea.x, area_spam_ha = sumarea.y, area_fao_2010 = summass.x, area_fao_2020 = summass.y) %>%
+  select(area_spam_pa, area_spam_ha, area_fao_2010, area_fao_2020, `Long Name`)
+spam2010_fao_unique_long <- melt(spam2010_fao_unique, id.vars = c("name_cntr", "Long Name"), variable.name = "source")
+spam2010_fao_unique_long %>%
+  ggplot(aes(fill = source, x = value, y = source))+
+  geom_bar(position = "dodge", stat = "identity") +
+  scale_fill_viridis(discrete = T, option = "E") +
+  ggtitle("fao spam crop area comparison 2010") +
+  facet_wrap(~`Long Name`, scales = "free_x")+
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  theme_ipsum(base_size = 20) +
+  theme(strip.text.x = element_text(size=40))
+
+sum()
+
+ggsave(paste0("20220805spam2010_fao_unique_long_",country, ".png"), width = 100, height = 100, unit = "cm")
+
+fao_m_c_na <- fao_m_c %>%
+  filter(is.na(CROPNAME))
+  group_by(Item, CROPNAME, name_group) %>%
+  summarize(count = n())
+  
+sum(fao_m_c_na$Value, na.rm = TRUE)/sum(fao_m$Value, na.rm = TRUE)
+write.csv(fao_m_c_na, "fao_spam.csv")
+unique(fao_m_c_na$Item)
+```
+
+
+
+#Sudan vs. south sudan
+```{r}
+library(geonames)
+spam2010_sudan <- spam2010 %>%
+  filter(name_cntr == "Sudan")
+library(maps)
+
+spam2010_sudan$Country <- map.where(database="world", spam2010_sudan$x, spam2010_sudan$y)
+```
+
+#centra america & caribbean
+```{r}
+spam2010_BMU <- spam2010 %>%
+  filter(iso3 == "BMU") %>%
+  bind_rows(summarise_all(., ~if(is.numeric(.)) sum(.) else "Total"))
+write.csv(spam2010_BMU, "spam2010_BMU.csv")
+```
+
+
+
+complete data gap filling background dataset
+```{r}
+files <- list.files(path = "/Users/yuyue/Documents/Research/map/input data/", pattern = "*.nc", full.names = TRUE)
+file_name <- list.files(path = "/Users/yuyue/Documents/Research/map/input data/", pattern = "*.nc")
+
+raster <- function(x, y){
+  #browser()
+  x <- raster(x)
+  y <- gsub(".nc", "", y)
+  assign(y, x, envir = .GlobalEnv)
+}
+
+map2(files, file_name, raster)
+
+#1. climate zone through Koeppen-geiger (http://koeppen-geiger.vu-wien.ac.at/present.htm)
+require(raster)
+climatezone <- raster::raster("C:/me/map/input data/KG_1986-2010.grd")
+climatezone
+#climatezone.df = raster::as.data.frame(climatezone, xy = TRUE)
+# Legend must correspond to all climate classes, insert placeholders
+climatezone0 <- climatezone[1:32]; climatezone[1:32] <- seq(1,32,1)
+# Converts raster field to categorical data
+climatezone <- ratify(climatezone); rat <- levels(climatezone)[[1]]
+# Legend is always drawn in alphabetic order
+rat$climate <- c('Af', 'Am', 'As', 'Aw', 'BSh', 'BSk', 'BWh', 'BWk', 'Cfa', 'Cfb','Cfc', 'Csa', 'Csb', 'Csc', 'Cwa','Cwb', 'Cwc', 'Dfa', 'Dfb', 'Dfc','Dfd', 'Dsa', 'Dsb', 'Dsc', 'Dsd','Dwa', 'Dwb', 'Dwc', 'Dwd', 'EF','ET', 'Ocean')
+# Remove the placeholders
+climatezone[1:32] <- climatezone0; levels(climatezone) <- rat
+climatezone
+climatezone.df = raster::as.data.frame(climatezone, xy = TRUE)
+climatezone.sp <- raster::as.matrix(climatezone)
+
+#2. HDI (using 2015 values, between 0 to 1)
+HDI_2015 <- raster::raster("C:/me/map/input data/HDI_1990_2015_v2.nc", band = 26)
+HDI_2015
+HDI_2015 <- raster::as.data.frame(HDI_2015, xy = TRUE)
+#HDI_2015.df = raster::as.data.frame(HDI_2015, xy = TRUE)
+
+hildaplus_states <- raster::raster("C:/Users/yuyzh/Downloads/hildaplus_GLOB-1-0-f_transitions/hildaplus_GLOB-1-0-f_transitions.nc", band = 111)
+#hildaplus_states <- nc_open("C:/Users/yuyzh/Downloads/hildaplus_GLOB-1-0-f_states.nc")
+hildaplus_states
+e <- extent(-72, -35, -33, 5)
+rc <- crop(hildaplus_states, e)
+rc
+
+hildaplus_states_1 <- raster::as.data.frame(rc, xy = TRUE)
+
+write.csv(hildaplus_states_1, "hildaplus_transitions_2010.csv")
+#3. GDP (using 2015 values)
+GDP_2015 <- raster::raster("C:/me/map/input data/GDP_PPP_1990_2015_5arcmin_v2.nc", band = 26)
+GDP_2015
+#GDP_2015.df = raster::as.data.frame(GDP_2015, xy = TRUE)
+
+#4. land evaporation (averaged 12 months in 2017)
+landevap_2017 <- raster::raster("C:/me/map/input data/landevap.nc")
+#landevap_2017Dec <- raster::raster("/Users/yuyue/Documents/Research/map/input data/landevap.nc", band = 12)
+#landevap_2017Dec
+landevapmean <- stackApply(landevap_2017, indices =  rep(1,nlayers(landevap_2017)), fun = "mean", na.rm = T)
+#landevapmean <- calc(landevap_2017, fun = mean, na.rm = T)
+landevapmean
+#landevap_2017Dec <- disaggregate(landevap_2017Dec, fact = 3, method = "bilinear")
+landevap_2017 <- disaggregate(landevapmean, fact = 3, method = "bilinear")
+e <- extent(-180, 180, -90, 90)
+landevap_2017 = extend(landevap_2017, e)
+landevap_2017
+#landevap_2017Dec.df = raster::as.data.frame(landevap_2017Dec, xy = TRUE)
+
+#5. population density (using 2015)
+gpw_2015 <- raster::raster("C:/me/map/input data/gpw.nc", band = 5)
+gpw_2015
+gpw_2015 <- aggregate(gpw_2015, fact = 2, method = "bilinear")
+gpw_2015
+#gpw_2015.df = raster::as.data.frame(gpw_2015, xy = TRUE)
+
+#tmin_2018 (average daily)
+tmin_2018 <- raster::raster("C:/me/map/input data/tmin_2018.nc")
+tmin_2018_mean <- stackApply(tmin_2018, indices =  rep(1,nlayers(tmin_2018)), fun = "mean", na.rm = T)
+tmin_2018_mean
+tmin_2018_mean <- disaggregate(tmin_2018_mean, fact = 6, method = "bilinear")
+tmin_2018_mean <- rotate(tmin_2018_mean)
+tmin_2018_mean
+#tmin_2018_365.df = raster::as.data.frame(tmin_2018_365, xy = TRUE)
+
+#6. tmin_1991-2020
+tmin_all <- raster::raster("/Users/yuyue/Documents/Research/map/input data/tmin.day.1991-2020.ltm.nc")
+tmin_all_mean <- stackApply(tmin_all, indices =  rep(1,nlayers(tmin_all)), fun = "mean", na.rm = T)
+tmin_all_mean
+tmin_all_mean <- disaggregate(tmin_all_mean, fact = 6, method = "bilinear")
+tmin_all_mean <- rotate(tmin_all_mean)
+tmin_all_mean
+#tmin_all_mean.df = raster::as.data.frame(tmax_2018_365, xy = TRUE)
+
+#tmax_2018 (average daily)
+tmax_2018 <- raster::raster("/Users/yuyue/Documents/Research/map/input data/tmax_2018.nc")
+tmax_2018_mean <- stackApply(tmax_2018, indices =  rep(1,nlayers(tmax_2018)), fun = "mean", na.rm = T)
+tmax_2018_mean
+tmax_2018_mean <- disaggregate(tmax_2018_mean, fact = 6, method = "bilinear")
+tmax_2018_mean <- rotate(tmax_2018_mean)
+tmax_2018_mean
+#tmax_2018_365.df = raster::as.data.frame(tmax_2018_365, xy = TRUE)
+
+#7. tmax_1991-2020
+tmax_all <- raster::raster("/Users/yuyue/Documents/Research/map/input data/tmax.day.1991-2020.ltm.nc")
+tmax_all_mean <- stackApply(tmax_all, indices =  rep(1,nlayers(tmax_all)), fun = "mean", na.rm = T)
+tmax_all_mean
+# tmax_season1_mean <- stackApply(tmax_all, indices =  rep(1,91), fun = "mean", na.rm = T)
+# tmax_season1_mean
+# tmax_season2_mean <- stackApply(tmax_all, indices =  rep(92,182), fun = "mean", na.rm = T)
+# tmax_season2_mean
+# tmax_season3_mean <- stackApply(tmax_all, indices =  rep(183,273), fun = "mean", na.rm = T)
+# tmax_season3_mean
+tmax_all_mean <- disaggregate(tmax_all_mean, fact = 6, method = "bilinear")
+tmax_all_mean <- rotate(tmax_all_mean)
+tmax_all_mean
+#tmax_2018_365.df = raster::as.data.frame(tmax_2018_365, xy = TRUE)
+
+#precipitation_2018 (should average daily)
+precip_2018_365 <- raster::raster("/Users/yuyue/Documents/Research/map/input data/precip_2018.nc", band = 365)
+precip_2018_365
+precip_2018_365 <- disaggregate(precip_2018_365, fact = 6, method = "bilinear")
+precip_2018_365 <- rotate(precip_2018_365)
+precip_2018_365
+#precip_2018_365.df = raster::as.data.frame(precip_2018_365, xy = TRUE)
+
+#8. precipitation_1991-2020
+precip_all <- raster::raster("C:/me/map/input data/precip.day.1991-2020.ltm.nc")
+precip_all_mean <- stackApply(precip_all, indices =  rep(1,nlayers(precip_all)), fun = "mean", na.rm = T)
+precip_all_mean
+precip_all_mean <- disaggregate(precip_all_mean, fact = 6, method = "bilinear")
+precip_all_mean <- rotate(precip_all_mean)
+precip_all_mean
+#precip_all_mean.df = raster::as.data.frame(tmax_2018_365, xy = TRUE)
+
+#9. fieldsize
+fieldsize <- raster("C:/me/map/input data/dominant_field_size_categories.tif")
+fieldsize
+fieldsize_proj <- projectRaster(fieldsize,precip_all_mean,method = 'ngb')
+fieldsize_proj
+#fieldsize_proj <- raster::as.data.frame(fieldsize, xy = TRUE)
+
+#10. soil organic carbon stock
+ocs <- raster::raster("C:/me/map/input data/ocs_extent.tif")
+ocs
+#ocs_proj <- resample(ocs,precip_all_mean,method = 'ngb')
+#ocs_proj
+#e <- extent(-180, 180, -90, 90)
+#ocs = extend(ocs, e)
+#ocs
+#ocs.df <- raster::as.data.frame(ocs, xy = TRUE)
+
+#11. soil organic carbon
+soc_5 <- raster::raster("/Users/yuyue/Documents/Research/map/soc_5_proj.tif")
+soc_5
+#soc_5.df <- raster::as.data.frame(soc_5, xy = TRUE)
+
+soc_15 <- raster::raster("/Users/yuyue/Documents/Research/map/soc_15_proj.tif")
+soc_15
+#soc_15.df <- raster::as.data.frame(soc_15, xy = TRUE)
+
+join <- stack(list(x, x1, x2, x3, climatezone, HDI_2015, GDP_2015, landevap_2017, gpw_2015, tmin_all_mean, tmax_all_mean, precip_all_mean, fieldsize_proj, ocs, soc_5, soc_15))
+join.df = raster::as.data.frame(join, xy = TRUE)
+
+join.df_clean <- join.df %>%
+  filter(!is.na(whea_a)) %>%
+  mutate(HDI_2015 = as.numeric(format(round(Human.Development.Index..HDI., 2), nsmall = 2)), GDP_2015 = as.numeric(format(round(Gross.Domestic.Production..GDP...PPP.))), landevap_2017 = as.numeric(format(round(index_1.1, 2), nsmall = 2)), gpw_2015 = as.numeric(format(round(UN.WPP.Adjusted.Population.Density..v4.11..2000..2005..2010..2015..2020...2.5.arc.minutes, 2), nsmall = 2)), tmin_all_mean = as.numeric(format(round(index_1.2, 2), nsmall = 2)), tmax_all_mean = as.numeric(format(round(index_1.3, 2), nsmall = 2)), precip_all_mean = as.numeric(format(round(index_1.4, 2), nsmall = 2)), fieldsize_proj = as.character(dominant_field_size_categories), ocs = as.numeric(format(round(ocs_extent, 2), nsmall = 2))) %>%
+  select(x, y, whea_a, rice_a, maiz_a, barl_a, pmil_a, smil_a, sorg_a, ocer_a, pota_a, swpo_a, yams_a, cass_a, orts_a, bean_a, chic_a, cowp_a, pige_a, lent_a, opul_a, soyb_a, grou_a, cnut_a, oilp_a, sunf_a, rape_a, sesa_a, ooil_a, sugc_a, sugb_a, cott_a, ofib_a, acof_a, rcof_a, coco_a, teas_a, bana_a, plnt_a, trof_a,  temf_a, vege_a, rest_a, layer_climate, HDI_2015, GDP_2015, landevap_2017, gpw_2015, tmin_all_mean, tmax_all_mean, precip_all_mean, fieldsize_proj, ocs, soc_15_proj, soc_5_proj)
+
+#summary(join.df_clean)
+
+join.df_clean_m = melt(join.df_clean, id.vars = c("x", "y","layer_climate", "HDI_2015", "GDP_2015", "landevap_2017", "gpw_2015", "tmin_all_mean", "tmax_all_mean", "precip_all_mean", "fieldsize_proj", "ocs", "soc_15_proj", "soc_5_proj"),
+                measure.vars = c("whea_a", "rice_a", "maiz_a", "barl_a", "pmil_a", "smil_a", "sorg_a", "ocer_a", "pota_a", "swpo_a", "yams_a", "cass_a", "orts_a", "bean_a", "chic_a", "cowp_a", "pige_a", "lent_a", "opul_a", "soyb_a", "grou_a", "cnut_a", "oilp_a", "sunf_a", "rape_a", "sesa_a", "ooil_a", "sugc_a", "sugb_a", "cott_a", "ofib_a", "acof_a", "rcof_a", "coco_a", "teas_a", "bana_a", "plnt_a", "trof_a",  "temf_a", "vege_a", "rest_a"))
+
+#clean rows with crop ha = 0, no this crop growing
+join.df_clean_m <- join.df_clean_m %>%
+  filter(value != 0) %>%
+  mutate(x1 = as.numeric(format(round(x, 3), nsmall = 3)), y1 = as.numeric(format(round(y, 3), nsmall = 3)))
+
+spam2010_cntr <- spam2010 %>%
+  mutate(x1 = as.numeric(format(round(x, 3), nsmall = 3)), y1 = as.numeric(format(round(y, 3), nsmall = 3))) %>%
+  dplyr::select(x1, y1, name_cntr)
+unique(spam2010_cntr$name_cntr)
+
+join.df_clean_m <- join.df_clean_m %>%
+  left_join(spam2010_cntr, by = c("x1", "y1"))
+
+join_cntr_uni <- join.df_clean_m %>%
+  select(layer_climate, HDI_2015, GDP_2015, landevap_2017, gpw_2015, tmin_all_mean, tmax_all_mean, precip_all_mean, fieldsize_proj, ocs, soc_15_proj, soc_5_proj, variable, name_cntr)
+join_cntr_uni <- distinct(join_cntr_uni)
+
+#clean rows with parameter NA
+join_cntr_uni  <- join_cntr_uni %>%
+  drop_na()
+
+summary(join_cntr_uni)
+```
+
+```{r}
+input_bayer_2018 <- file.choose(new = FALSE)
+input_bayer_2018 <- read_excel(input_bayer_2018, sheet = 1)
+```
+
+```{r}
+crop <- read_excel("/Users/yuyue/Documents/Research/Database/harmonization/harmonization_crop.xlsx", sheet = 1)
+crop_spam <- read_excel("/Users/yuyue/Documents/Research/Database/harmonization/Crop_Data.xlsx", sheet = 1)
+spam_id <- read_excel("/Users/yuyue/Documents/Research/Database/harmonization/Crop_Data.xlsx", sheet = 2)
+crop <- crop %>%
+  select(name_crop_bayer, name_crop_earthstat, name_cropgroup) %>%
+  left_join(crop_spam, by = c("name_crop_earthstat" = "CROPNAME")) %>%
+  select(name_crop_bayer, name_crop_earthstat, name_cropgroup, id_spam) %>%
+  #mutate(id_spam = case_when(id_spam == "5 or 6" ~ "5",
+                             #id_spam == "32or33" ~ "32",
+                             #TRUE ~ id_spam)) %>%
+  mutate(id_spam = as.numeric(id_spam)) %>%
+  left_join(spam_id, by = c("id_spam" = "ID")) %>%
+  select(name_crop_bayer, name_crop_earthstat, name_cropgroup, id_spam, `Short Name`)
+
+#crop_dup <- crop %>%
+  #group_by(name_crop_bayer) %>%
+  #mutate(count = n())
+```
+
+```{r}
+files <- list.files(path = "/Users/yuyue/Documents/Research/Database/harmonization/", pattern = "*.xlsx", full.names = TRUE)
+file_name <- list.files(path = "/Users/yuyue/Documents/Research/Database/harmonization/", pattern = "*.xlsx")
+
+readexcel <- function(x, y){
+  #browser()
+  x <- read_excel(x)
+  y <- gsub(".xlsx", "", y)
+  assign(y, x, envir = .GlobalEnv)
+}
+
+map2(files, file_name, readexcel)
+```
+
+
+
+```{r}
+#left join to the harmonization_country table, change if the parameter names change
+input_bayer_2018_cntr <- input_bayer_2018 %>%
+  left_join(harmonization_country, by = c("name_country_bayer" = "name_country_bayer"))
+
+# check if all countries can be allocated
+# currently no records for CENTRAL AMERICA-CARIBBEAN and change them still to CENTRAL AMERICA-CARIBBEAN
+input_bayer_2018_cntrna <- input_bayer_2018_cntr %>%
+  filter(is.na(name_country))
+input_bayer_2018_cntr <- input_bayer_2018_cntr %>% 
+  mutate(name_country = replace_na(name_country, "CENTRAL AMERICA-CARIBBEAN"))
+```
+
+
+```{r}
+# left join to the harmonization_crop table, change if the parameter names change
+input_bayer_2018_crop <- input_bayer_2018_cntr %>%
+  left_join(crop, by = c("name_crop_bayer" = "name_crop_bayer"))
+
+# check if all crops can be allocated
+# change after confirmation of the crop names
+input_bayer_2018_cropna <- input_bayer_2018_crop %>%
+  filter(is.na(name_crop_earthstat))
+input_bayer_2018_crop <- input_bayer_2018_crop %>%
+  filter(!is.na(name_crop_earthstat))
+```
+
+```{r}
+# left join to the harmonization_casrn table, change if the parameter names change
+input_bayer_2018_cas <- input_bayer_2018_crop %>%
+  left_join(harmonization_casrn, by = c("casrn_chemical_bayer" = "casrn_chemical_bayer"))
+
+# check if all crop stages can be allocated
+# check in casrn_check.rmd if new cas number introduced
+input_bayer_2018_casna <- input_bayer_2018_cas %>%
+  filter(is.na(casrn_chemical))
+
+# 26536 records with no cas rn
+#input_bayer_2018_5name <- input_bayer_2018_5 %>%
+  #filter(casrn_chemical == "NAME")
+
+# remove cas rn with names
+input_bayer_2018_cas <- input_bayer_2018_cas %>%
+  filter(casrn_chemical != "NAME")
+```
+
+```{r}
+# left join to the def_chemical table, change if the parameter names change
+input_bayer_2018_chem <- input_bayer_2018_cas %>%
+  left_join(def_chemical, by = c("casrn_chemical" = "casrn_chemical"))
+
+
+unique(input_bayer_2018_chemna$casrn_chemical)
+# check if all active ingredients can be allocated
+# 
+input_bayer_2018_chemna <- input_bayer_2018_chem %>%
+  filter(is.na(name_ai))
+```
+
+```{r}
+input_bayer_cpc <- input_bayer_2018_chem %>%
+  select(name_country, name_ai, `Short Name`, casrn_chemical)
+input_bayer_cpc <- distinct(input_bayer_cpc)
+```
+
+#registration
+```{r}
+ppdbregistration <- read_excel("/Users/yuyue/Documents/Research/map/regulations/ppdbregistrationall.xlsx", sheet = 2)
+ppdbregistration <- ppdbregistration %>% 
+  mutate_all(funs(str_replace(., "✓", "registered")))
+ppdbregistration_m <- melt(ppdbregistration, id.vars = c("casno", "chemicalnumber"))
+ppdbregistration_m <- ppdbregistration_m %>%
+  mutate(registered = case_when(value == "registered" ~ "registered",
+                                TRUE ~ "not registered"))
+input_bayer_cp_eu <- input_bayer_cpc_eu %>%
+  select("name_country", "casrn_chemical")
+input_bayer_cp_eu <- distinct(input_bayer_cp_eu)
+registered <- input_bayer_cp_eu %>%
+  left_join(ppdbregistration_m, by = c("name_country" = "variable", "casrn_chemical" = "casno"))
+
+input_bayer_cp_eu_na <- registered %>%
+  filter(is.na(registered))
+n_distinct(input_bayer_cp_eu_na$casrn_chemical)
+```
+
+```{r}
+input_bayer_cpc_eu <- distinct(input_bayer_cpc_eu)
+registered_cpc <- input_bayer_cpc_eu %>%
+  left_join(ppdbregistration_m, by = c("name_country" = "variable", "casrn_chemical" = "casno"))
+
+input_bayer_cp_eu_na <- registered %>%
+  filter(is.na(registered))
+n_distinct(input_bayer_cp_eu_na$casrn_chemical)
+```
+
+
+#regulation
+```{r}
+regulationeu <- read_excel("/Users/yuyue/Documents/Research/map/regulations/regulations.xlsx", sheet = 1)
+regulation_eu <- registered %>%
+  left_join(regulationeu, by = c("casrn_chemical" = "CAS number")) %>%
+  mutate(regu_eu = `Final regulatory action`)
+regulationcountry <- read_excel("/Users/yuyue/Documents/Research/map/regulations/regulations.xlsx", sheet = 2)
+regulationcountry <- regulationcountry %>%
+  filter(Country != "EU")
+regulation_country <- regulation_eu %>%
+  left_join(regulationcountry, by = c("casrn_chemical" = "CAS number", "name_country" = "Country")) %>%
+  mutate(regu_cntr = `Final regulatory action.y`) %>%
+  select(name_country, casrn_chemical, chemicalnumber, registered, regu_eu, regu_cntr)
+```
+
+#only regulation
+```{r}
+regulation_cpc <- input_bayer_cpc_eu %>%
+  left_join(regulationeu, by = c("casrn_chemical" = "CAS number")) %>%
+  mutate(regu_eu = `Final regulatory action`) %>%
+  left_join(regulationcountry, by = c("casrn_chemical" = "CAS number", "name_country" = "Country")) %>%
+  mutate(regu_cntr = `Final regulatory action.y`) %>%
+  select(name_country, casrn_chemical, name_ai,regu_eu, regu_cntr, `Short Name`)
+```
+
+#registration + regulation
+```{r}
+regulation_cpc_eu <- registered_cpc %>%
+  left_join(regulationeu, by = c("casrn_chemical" = "CAS number")) %>%
+  mutate(regu_eu = `Final regulatory action`)
+
+regulationcountry <- regulationcountry %>%
+  filter(Country != "EU")
+regulation_cpc_country <- regulation_cpc_eu %>%
+  left_join(regulationeu, by = c("casrn_chemical" = "CAS number", "name_country" = "Country")) %>%
+  mutate(regu_cntr = `Final regulatory action.y`) %>%
+  select(name_country, casrn_chemical, chemicalnumber, registered, regu_eu, regu_cntr, `Short Name`)
+```
+
+
+
+```{r}
+unique(join_cntr_uni$name_cntr)
+join_cntr_pest <- join_cntr_uni %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea, Republic of",
+                                  name_cntr == "Iran  (islamic Republic Of)" ~ "Iran, Islamic Republic of",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~ "United States",
+                                  TRUE ~ name_cntr)) %>%
+  mutate(name_crop = str_remove(variable, "_a$")) %>%
+  left_join(input_bayer_cpc, by = c("name_country" = "name_country", "name_crop" = "Short Name"))
+```
+
+
+```{r}
+join_cntr_pest_eu <- join_cntr_uni %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea, Republic of",
+                                  name_cntr == "Iran  (islamic Republic Of)" ~ "Iran, Islamic Republic of",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~ "United States",
+                                  TRUE ~ name_cntr)) %>%
+  filter(name_country == "Austria" | name_country == "Belgium" | name_country == "Bulgaria" | name_country == "Croatia" | name_country == "Czech Republic" | name_country == "Denmark" | name_country == "Estonia" | name_country == "Finland" | name_country == "France" | name_country == "Germany" | name_country == "Greece" | name_country == "Hungary" | name_country == "Ireland" | name_country == "Italy" | name_country == "Latvia" | name_country == "Lithuania" | name_country == "Netherlands" | name_country == "Poland" | name_country == "Portugal" | name_country == "Romania" | name_country == "Spain" | name_country == "Sweden") %>%
+  mutate(name_crop = str_remove(variable, "_a$")) %>%
+  left_join(regulation_cpc, by = c("name_country" = "name_country", "name_crop" = "Short Name"))
+```
+
+
+#without Denmark, France, Portugal, Ireland, Finland
+```{r}
+regulation_cpc_existed <- regulation_cpc %>%
+  filter(name_country != "Denmark" & name_country != "France" & name_country != "Portugal" & name_country != "Ireland" & name_country != "Finland")
+
+join_cntr_pest_eu_existed <- join_cntr_uni %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea, Republic of",
+                                  name_cntr == "Iran  (islamic Republic Of)" ~ "Iran, Islamic Republic of",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~ "United States",
+                                  TRUE ~ name_cntr)) %>%
+  filter(name_country == "Austria" | name_country == "Belgium" | name_country == "Bulgaria" | name_country == "Croatia" | name_country == "Czech Republic" || name_country == "Estonia" | name_country == "Germany" | name_country == "Greece" | name_country == "Hungary" | name_country == "Italy" | name_country == "Latvia" | name_country == "Lithuania" | name_country == "Netherlands" | name_country == "Poland" |  name_country == "Romania" | name_country == "Spain" | name_country == "Sweden") %>%
+  mutate(name_crop = str_remove(variable, "_a$")) %>%
+  left_join(regulation_cpc_existed, by = c("name_country" = "name_country", "name_crop" = "Short Name")) %>%
+  filter(!is.na(casrn_chemical))
+
+write.csv(join_cntr_pest_eu_existed,"join_cntr_pest_eu_existed.csv")
+
+join_cntr_pest_eu_nocrop <- join_cntr_uni %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea, Republic of",
+                                  name_cntr == "Iran  (islamic Republic Of)" ~ "Iran, Islamic Republic of",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~ "United States",
+                                  TRUE ~ name_cntr)) %>%
+  filter(name_country == "Austria" | name_country == "Belgium" | name_country == "Bulgaria" | name_country == "Croatia" | name_country == "Czech Republic" || name_country == "Estonia" | name_country == "Germany" | name_country == "Greece" | name_country == "Hungary" | name_country == "Italy" | name_country == "Latvia" | name_country == "Lithuania" | name_country == "Netherlands" | name_country == "Poland" |  name_country == "Romania" | name_country == "Spain" | name_country == "Sweden") %>%
+  mutate(name_crop = str_remove(variable, "_a$")) %>%
+  left_join(regulation_cpc_existed, by = c("name_country" = "name_country", "name_crop" = "Short Name")) %>%
+  filter(is.na(casrn_chemical))
+
+write.csv(join_cntr_pest_eu_nocrop,"join_cntr_pest_eu_nocrop.csv")
+#summary(join_cntr_pest_eu_existed)
+
+join_cntr_pest_eu_norecord <- join_cntr_uni %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea, Republic of",
+                                  name_cntr == "Iran  (islamic Republic Of)" ~ "Iran, Islamic Republic of",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~ "United States",
+                                  TRUE ~ name_cntr)) %>%
+  filter(name_country == "Denmark" | name_country == "Finland" | name_country == "France" | name_country == "Portugal" | name_country == "Ireland") %>%
+  mutate(name_crop = str_remove(variable, "_a$")) %>% 
+  mutate(union = "EU") %>%
+  left_join(regulationeu, by = c("union" = "Country")) %>%
+  mutate(regu_eu = `Final regulatory action`) %>%
+  left_join(regulationcountry, by = c("name_cntr" = "Country")) %>%
+  mutate(regu_cntr = `Final regulatory action.y`) %>%
+  mutate(casrn_chemical = `CAS number.x`) %>%
+  select(layer_climate, HDI_2015, GDP_2015, landevap_2017, gpw_2015, tmin_all_mean, tmax_all_mean, precip_all_mean, fieldsize_proj, ocs, soc_15_proj, soc_5_proj, variable, name_cntr, name_country, name_crop, casrn_chemical, regu_eu, regu_cntr)
+
+write.csv(join_cntr_pest_eu_norecord,"join_cntr_pest_eu_norecord.csv")
+
+```
+
+
+```{r}
+join_cntr_pest_euna <- join_cntr_pest_eu %>%
+  filter(is.na(casrn_chemical))
+```
+
+
+```{r}
+regulation_country_group <- regulation_country %>%
+  group_by(name_country) %>%
+  summarize(count = n_distinct(casrn_chemical))
+```
+
+```{r}
+
+# Clear console
+cat("\014") 
+
+# Clean workspace
+rm(list=ls())
+```
+
+```{r}
+structure(join.df_clean)
+```
+#filter european union countries
+# didn't include NA short name like fodder products etc.
+```{r}
+input_bayer_cpc_eu <- input_bayer_2018_chem %>%
+  select(name_country, name_ai, `Short Name`, casrn_chemical) %>%
+  filter(name_country == "Austria" | name_country == "Belgium" | name_country == "Bulgaria" | name_country == "Croatia" | name_country == "Czech Republic" | name_country == "Denmark" | name_country == "Estonia" | name_country == "Finland" | name_country == "France" | name_country == "Germany" | name_country == "Greece" | name_country == "Hungary" | name_country == "Ireland" | name_country == "Italy" | name_country == "Latvia" | name_country == "Lithuania" | name_country == "Netherlands" | name_country == "Poland" | name_country == "Portugal" | name_country == "Romania" | name_country == "Spain" | name_country == "Sweden")
+input_bayer_cpc_eu <- distinct(input_bayer_cpc_eu) 
+input_bayer_cpc_eu <- input_bayer_cpc_eu %>%
+  filter(!is.na(`Short Name`))
+```
+
+```{r}
+join_cntr_uni_eu <- join_cntr_uni %>%
+  filter(name_cntr == "Austria" | name_cntr == "Belgium" | name_cntr == "Bulgaria" | name_cntr == "Croatia" | name_cntr == "Czech Republic" | name_cntr == "Denmark" | name_cntr == "Estonia" | name_cntr == "Finland" | name_cntr == "France" | name_cntr == "Germany" | name_cntr == "Greece" | name_cntr == "Hungary" | name_cntr == "Ireland" | name_cntr == "Italy" | name_cntr == "Latvia" | name_cntr == "Lithuania" | name_cntr == "Netherlands" | name_cntr == "Poland" | name_cntr == "Portugal" | name_cntr == "Romania" | name_cntr == "Spain" | name_cntr == "Sweden")
+  
+```
+
+
+#develop only for crop-country-chemical
+```{r}
+join <- stack(list(x, x1, x2, x3, climatezone, HDI_2015, GDP_2015, landevap_2017, gpw_2015, tmin_all_mean, tmax_all_mean, precip_all_mean, fieldsize_proj, ocs, soc_5, soc_15))
+join.df = raster::as.data.frame(join, xy = TRUE)
+
+join.df_clean <- join.df %>%
+  filter(!is.na(whea_a)) %>%
+  mutate(HDI_2015 = as.numeric(format(round(Human.Development.Index..HDI., 2), nsmall = 2)), GDP_2015 = as.numeric(format(round(Gross.Domestic.Production..GDP...PPP.))), landevap_2017 = as.numeric(format(round(index_1.1, 2), nsmall = 2)), gpw_2015 = as.numeric(format(round(UN.WPP.Adjusted.Population.Density..v4.11..2000..2005..2010..2015..2020...2.5.arc.minutes, 2), nsmall = 2)), tmin_all_mean = as.numeric(format(round(index_1.2, 2), nsmall = 2)), tmax_all_mean = as.numeric(format(round(index_1.3, 2), nsmall = 2)), precip_all_mean = as.numeric(format(round(index_1.4, 2), nsmall = 2)), fieldsize_proj = as.character(dominant_field_size_categories), ocs = as.numeric(format(round(ocs_extent, 2), nsmall = 2))) %>%
+  select(x, y, whea_a, rice_a, maiz_a, barl_a, pmil_a, smil_a, sorg_a, ocer_a, pota_a, swpo_a, yams_a, cass_a, orts_a, bean_a, chic_a, cowp_a, pige_a, lent_a, opul_a, soyb_a, grou_a, cnut_a, oilp_a, sunf_a, rape_a, sesa_a, ooil_a, sugc_a, sugb_a, cott_a, ofib_a, acof_a, rcof_a, coco_a, teas_a, bana_a, plnt_a, trof_a,  temf_a, vege_a, rest_a, layer_climate, HDI_2015, GDP_2015, landevap_2017, gpw_2015, tmin_all_mean, tmax_all_mean, precip_all_mean, fieldsize_proj, ocs, soc_15_proj, soc_5_proj)
+
+summary(join.df_clean)
+
+join.df_clean_m = melt(join.df_clean, id.vars = c("x", "y","layer_climate", "HDI_2015", "GDP_2015", "landevap_2017", "gpw_2015", "tmin_all_mean", "tmax_all_mean", "precip_all_mean", "fieldsize_proj", "ocs", "soc_15_proj", "soc_5_proj"),
+                measure.vars = c("whea_a", "rice_a", "maiz_a", "barl_a", "pmil_a", "smil_a", "sorg_a", "ocer_a", "pota_a", "swpo_a", "yams_a", "cass_a", "orts_a", "bean_a", "chic_a", "cowp_a", "pige_a", "lent_a", "opul_a", "soyb_a", "grou_a", "cnut_a", "oilp_a", "sunf_a", "rape_a", "sesa_a", "ooil_a", "sugc_a", "sugb_a", "cott_a", "ofib_a", "acof_a", "rcof_a", "coco_a", "teas_a", "bana_a", "plnt_a", "trof_a",  "temf_a", "vege_a", "rest_a"))
+
+#clean rows with crop ha = 0, no this crop growing
+join.df_clean_m <- join.df_clean_m %>%
+  filter(value != 0) %>%
+  mutate(x1 = as.numeric(format(round(x, 3), nsmall = 3)), y1 = as.numeric(format(round(y, 3), nsmall = 3)))
+
+spam2010_cntr <- spam2010 %>%
+  mutate(x1 = as.numeric(format(round(x, 3), nsmall = 3)), y1 = as.numeric(format(round(y, 3), nsmall = 3))) %>%
+  select(x1, y1, name_cntr)
+
+join.df_clean_m <- join.df_clean_m %>%
+  left_join(spam2010_cntr, by = c("x1", "y1"))
+
+join_cntr_uni <- join.df_clean_m %>%
+  select(layer_climate, HDI_2015, GDP_2015, landevap_2017, gpw_2015, tmin_all_mean, tmax_all_mean, precip_all_mean, fieldsize_proj, ocs, soc_15_proj, soc_5_proj, variable, name_cntr)
+join_cntr_uni <- distinct(join_cntr_uni)
+summary(join_cntr_uni)
+join_cntr_uni_combi <- join_cntr_uni %>%
+  group_by(name_cntr, variable, layer_climate, fieldsize_proj) %>%
+  summarize(HDI_2015 = mean(HDI_2015, na.rm = TRUE), GDP_2015 = mean(GDP_2015, na.rm = TRUE), landevap_2017 = mean(landevap_2017, na.rm = TRUE), gpw_2015 = mean(gpw_2015, na.rm = TRUE), tmin_all_mean = mean(tmin_all_mean, na.rm = TRUE), tmax_all_mean = mean(tmax_all_mean, na.rm = TRUE), precip_all_mean = mean(precip_all_mean, na.rm = TRUE), ocs = mean(ocs, na.rm = TRUE), soc_15_proj = mean(soc_15_proj, na.rm = TRUE), soc_5_proj = mean(soc_5_proj, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(HDI_2015 = as.numeric(format(round(HDI_2015, 2), nsmall = 2)), GDP_2015 = as.numeric(format(round(GDP_2015, 2))), landevap_2017 = as.numeric(format(round(landevap_2017, 2), nsmall = 2)), gpw_2015 = as.numeric(format(round(gpw_2015, 2), nsmall = 2)), tmin_all_mean = as.numeric(format(round(tmin_all_mean, 2), nsmall = 2)), tmax_all_mean = as.numeric(format(round(tmax_all_mean, 2), nsmall = 2)), precip_all_mean = as.numeric(format(round(precip_all_mean, 2), nsmall = 2)), ocs = as.numeric(format(round(ocs, 2), nsmall = 2)), soc_15_proj = as.numeric(format(round(soc_15_proj, 2), nsmall = 2)), soc_5_proj = as.numeric(format(round(soc_5_proj, 2), nsmall = 2))) %>%
+  select(name_cntr, variable, layer_climate, fieldsize_proj, HDI_2015, GDP_2015, landevap_2017, gpw_2015, tmin_all_mean, tmax_all_mean, precip_all_mean, ocs, soc_15_proj, soc_5_proj)
+```
+
+
+#without Denmark, France, Portugal, Ireland, Finland
+```{r}
+regulation_cpc_existed <- regulation_cpc %>%
+  filter(name_country != "Denmark" & name_country != "France" & name_country != "Portugal" & name_country != "Ireland" & name_country != "Finland")
+
+combi_cntr_pest_eu_existed <- join_cntr_uni_combi %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea, Republic of",
+                                  name_cntr == "Iran  (islamic Republic Of)" ~ "Iran, Islamic Republic of",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~ "United States",
+                                  TRUE ~ name_cntr)) %>%
+  filter(name_country == "Austria" | name_country == "Belgium" | name_country == "Bulgaria" | name_country == "Croatia" | name_country == "Czech Republic" || name_country == "Estonia" | name_country == "Germany" | name_country == "Greece" | name_country == "Hungary" | name_country == "Italy" | name_country == "Latvia" | name_country == "Lithuania" | name_country == "Netherlands" | name_country == "Poland" |  name_country == "Romania" | name_country == "Spain" | name_country == "Sweden") %>%
+  mutate(name_crop = str_remove(variable, "_a$")) %>%
+  left_join(regulation_cpc_existed, by = c("name_country" = "name_country", "name_crop" = "Short Name")) %>%
+  filter(!is.na(casrn_chemical))
+
+write.csv(combi_cntr_pest_eu_existed,"combi_cntr_pest_eu_existed.csv")
+
+combi_cntr_pest_eu_nocrop <- join_cntr_uni_combi %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea, Republic of",
+                                  name_cntr == "Iran  (islamic Republic Of)" ~ "Iran, Islamic Republic of",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~ "United States",
+                                  TRUE ~ name_cntr)) %>%
+  filter(name_country == "Austria" | name_country == "Belgium" | name_country == "Bulgaria" | name_country == "Croatia" | name_country == "Czech Republic" || name_country == "Estonia" | name_country == "Germany" | name_country == "Greece" | name_country == "Hungary" | name_country == "Italy" | name_country == "Latvia" | name_country == "Lithuania" | name_country == "Netherlands" | name_country == "Poland" |  name_country == "Romania" | name_country == "Spain" | name_country == "Sweden") %>%
+  mutate(name_crop = str_remove(variable, "_a$")) %>%
+  left_join(regulation_cpc_existed, by = c("name_country" = "name_country", "name_crop" = "Short Name")) %>%
+  filter(is.na(casrn_chemical))
+
+write.csv(combi_cntr_pest_eu_nocrop,"combi_cntr_pest_eu_nocrop.csv")
+#summary(join_cntr_pest_eu_existed)
+
+combi_cntr_pest_eu_norecord <- join_cntr_uni_combi %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea, Republic of",
+                                  name_cntr == "Iran  (islamic Republic Of)" ~ "Iran, Islamic Republic of",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~ "United States",
+                                  TRUE ~ name_cntr)) %>%
+  filter(name_country == "Denmark" | name_country == "Finland" | name_country == "France" | name_country == "Portugal" | name_country == "Ireland") %>%
+  mutate(name_crop = str_remove(variable, "_a$")) %>% 
+  mutate(union = "EU") %>%
+  left_join(regulationeu, by = c("union" = "Country")) %>%
+  mutate(regu_eu = `Final regulatory action`) %>%
+  left_join(regulationcountry, by = c("name_cntr" = "Country")) %>%
+  mutate(regu_cntr = `Final regulatory action.y`) %>%
+  mutate(casrn_chemical = `CAS number.x`) %>%
+  select(name_cntr, variable, layer_climate, fieldsize_proj, HDI_2015, GDP_2015, landevap_2017, gpw_2015, tmin_all_mean, tmax_all_mean, precip_all_mean,  ocs, soc_15_proj,soc_5_proj, name_country, name_crop, casrn_chemical, regu_eu, regu_cntr)
+
+write.csv(combi_cntr_pest_eu_norecord,"combi_cntr_pest_eu_norecord.csv")
+
+```
+
+
+# check sum of spam map (harvested area)
+```{r}
+spam2010_sum <- spam2010 %>%
+  mutate(sum = whea_a + rice_a + maiz_a + barl_a + pmil_a + smil_a + sorg_a + ocer_a + pota_a + swpo_a + yams_a + cass_a + orts_a + bean_a + chic_a + cowp_a + pige_a + lent_a + opul_a + soyb_a + grou_a + cnut_a + oilp_a + sunf_a + rape_a + sesa_a + ooil_a + sugc_a + sugb_a + cott_a + ofib_a + acof_a + rcof_a + coco_a + teas_a + toba_a + bana_a +plnt_a + trof_a + temf_a+ vege_a + rest_a) #%>%
+  #filter(sum > 10000)
+```
+
+# physical area
+```{r}
+spam2010_pa <- read_csv("/Users/yuyue/Documents/Research/map/cropmap/spam2010v2r0_global_phys_area.csv/spam2010V2r0_global_A_TA.csv")
+
+spam2010_pa_sum <- spam2010_pa %>%
+  mutate(sum = whea_a + rice_a + maiz_a + barl_a + pmil_a + smil_a + sorg_a + ocer_a + pota_a + swpo_a + yams_a + cass_a + orts_a + bean_a + chic_a + cowp_a + pige_a + lent_a + opul_a + soyb_a + grou_a + cnut_a + oilp_a + sunf_a + rape_a + sesa_a + ooil_a + sugc_a + sugb_a + cott_a + ofib_a + acof_a + rcof_a + coco_a + teas_a + toba_a + bana_a +plnt_a + trof_a + temf_a+ vege_a + rest_a)
+
+spam2010_paj <- spam2010_sum %>%
+  left_join(spam2010_pa, by = c("iso3", "prod_level", "alloc_key", "cell5m", "x", "y",  "tech_type", "unit", "year_data", "source", "name_cntr", "name_adm1", "name_adm2"))
+```
+
+```{r}
+spam2010_paj_p <- spam2010_paj %>%
+  mutate(whea_p = as.numeric(whea_a.x)/as.numeric(whea_a.y), rice_p = rice_a.x/rice_a.y, maiz_p = maiz_a.x/maiz_a.y, barl_p = barl_a.x/barl_a.y, pmil_p = pmil_a.x/pmil_a.y, smil_p = smil_a.x/smil_a.y, sorg_p = sorg_a.x/sorg_a.y, ocer_p = ocer_a.x/ocer_a.y, pota_p = pota_a.x/pota_a.y, swpo_p = swpo_a.x/swpo_a.y, yams_p = yams_a.x/yams_a.y, cass_p = cass_a.x/cass_a.y, orts_p = orts_a.x/orts_a.y,  bean_p = bean_a.x/bean_a.y, chic_p = chic_a.x/chic_a.y, cowp_p = cowp_a.x/cowp_a.y, pige_p = pige_a.x/ pige_a.y, lent_p = lent_a.x/lent_a.y, opul_p =opul_a.x/opul_a.y, soyb_p = soyb_a.x/soyb_a.y, grou_p = grou_a.x/grou_a.y, cnut_p = cnut_a.x/cnut_a.y, oilp_p = oilp_a.x/oilp_a.y, sunf_p = sunf_a.x/sunf_a.y, rape_p = rape_a.x/rape_a.y, sesa_p = sesa_a.x/sesa_a.y,  ooil_p = ooil_a.x/ooil_a.y, sugc_p = sugc_a.x/sugc_a.y, sugb_p = sugb_a.x/sugb_a.y, cott_p = cott_a.x/cott_a.y, ofib_p = ofib_a.x/ofib_a.y, acof_p = acof_a.x/acof_a.y, rcof_p = rcof_a.x/rcof_a.y, coco_p = coco_a.x/coco_a.y, teas_p = teas_a.x/teas_a.y, toba_p = toba_a.x/toba_a.y, bana_p = bana_a.x/bana_a.y, plnt_p = plnt_a.x/plnt_a.y, trof_p = trof_a.x/trof_a.y, temf_p = temf_a.x/temf_a.y, vege_p = vege_a.x/vege_a.y, rest_p = rest_a.x/rest_a.y) %>%
+  select(iso3, prod_level, alloc_key, cell5m, x, y, tech_type, unit, year_data, source, name_cntr, name_adm1, name_adm2, whea_p, rice_p, maiz_p, barl_p, pmil_p, smil_p, sorg_p, ocer_p, pota_p, swpo_p, yams_p, cass_p, orts_p, bean_p, chic_p, cowp_p, pige_p, lent_p, opul_p, soyb_p, grou_p, cnut_p, oilp_p, sunf_p, rape_p, sesa_p, ooil_p, sugc_p, sugb_p, cott_p, ofib_p, acof_p, rcof_p, coco_p, teas_p, toba_p, bana_p, plnt_p, trof_p, temf_p, vege_p, rest_p)
+```
+
+```{r}
+spam2010_paj_pg <- melt(spam2010_paj_p, id.vars = c("iso3", "prod_level", "alloc_key", "cell5m", "x", "y",  "tech_type", "unit", "year_data", "source", "name_cntr", "name_adm1", "name_adm2"))
+spam2010_paj_pgs <- spam2010_paj_pg %>%
+  filter(value != "NaN") %>%
+  group_by(name_cntr, variable) %>%
+  summarize(min_p = round(min(value),2), max_p = round(max(value),2), avg_p = round(mean(value),2))
+```
+
+```{r}
+dose_wa_w <- dose_wa %>%
+  select(-c("min", "max"))
+
+crop_spam <- crop_spam %>%
+  mutate(id_spam = as.numeric(id_spam))
+
+dose_wa_glyphosate <- dose_wa %>%
+  filter(name_ai == "Glyphosate") %>%
+  left_join(crop_spam, by = c("name_crop_earthstat" = "CROPNAME")) %>%
+  left_join(spam_id, by = c("id_spam" = "ID")) %>%
+  select(name_region, name_country, name_ai, casrn_chemical, name_crop_earthstat, name_cropgroup.y, `dose_wa_[kg/ha]`, min, max, `Short Name`) %>%
+  filter(!is.na(`Short Name`))
+
+spam2010_cntr <- spam2010 %>%
+  mutate(x1 = as.numeric(format(round(x, 3), nsmall = 3)), y1 = as.numeric(format(round(y, 3), nsmall = 3))) %>%
+  select(x1, y1, name_cntr)
+
+join.df_clean <- join.df_clean %>%
+  mutate(x1 = as.numeric(format(round(x, 3), nsmall = 3)), y1 = as.numeric(format(round(y, 3), nsmall = 3))) %>%
+  left_join(spam2010_cntr, by = c("x1", "y1"))
+
+dose_wa_glyphosate_whea <- dose_wa_glyphosate %>%
+  filter(`Short Name`=="whea")
+
+join.df_clean_whea_glyphosate <- join.df_clean %>%
+  select(x,y, whea_a, name_cntr.x, x1, y1, layer_climate) %>%
+  mutate(name_country = case_when(name_cntr.x == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr.x == "Republic Of Korea" ~ "Korea, Republic of",
+                                  name_cntr.x == "Iran  (islamic Republic Of)" ~ "Iran, Islamic Republic of",
+                                  name_cntr.x == "United Republic Of Tanzania" ~ "Tanzania, United Republic of",
+                                  name_cntr.x == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr.x == "United States Of America" ~ "United States",
+                                  TRUE ~ name_cntr.x)) %>%
+  left_join(dose_wa_glyphosate_whea, by = c("name_country" = "name_country")) %>%
+  mutate(mass = whea_a * `dose_wa_[kg/ha]`)
+
+p <- ggplot() +
+            geom_map(
+                data = world, map = world,
+                aes(long, lat, map_id = region),
+                color = "white", fill = "lightgray", size = 0.1) +
+            geom_point(
+                data = join.df_clean_whea_glyphosate,
+                aes(x = x, y = y, color = `dose_wa_[kg/ha]`),
+                alpha = 0.1, size = 0.00001, shape = 15) +
+            #scale_colour_gradient(low = "lightblue", high = muted("blue"))
+  #scale_color_continuous(low = "goldenrod2", high = "blue")
+  scale_color_continuous(low = '#ccdbe5' , high = "#114365")
+            scale_color_viridis(option = "inferno", direction = -1)
+p
+```
+
+```{r}
+q <- ggplot() +
+            geom_map(
+                data = world, map = world,
+                aes(long, lat, map_id = region),
+                color = "white", fill = "lightgray", size = 0.1) +
+            geom_point(
+                data = join.df_clean_whea_glyphosate,
+                aes(x = x, y = y, color = mass),
+                alpha = 0.1, size = 0.00001, shape = 15) +
+            #scale_colour_gradient(low = "lightblue", high = muted("blue"))
+            #scale_color_continuous(low = '#ccdbe5' , high = "#114365")
+            scale_color_viridis(option = "inferno", direction = -1) +
+  geom_segment(data=join.df_clean, aes(x= x, y = y , xend = xend, yend = yend), 
+                    inherit.aes = F)
+q
+```
+
+```{r}
+source("https://raw.githubusercontent.com/imaddowzimet/drawcrosshatch/master/draw_crosshatch.R") 
+
+
+lines <- map_df(join.df_clean$layer_climate, draw.crosshatch, width = .5, pattern= "crosshatch")
+```
+
+```{r}
+install.packages("remotes")                    # Install remotes package
+remotes::install_github("coolbutuseless/ggpattern")
+library("ggpattern")  
+
+join.df_clean_whea_glyphosate$climate = str_sub(join.df_clean_whea_glyphosate$layer_climate, 1, 1)
+
+q <- ggplot() +
+            geom_map(
+                data = world, map = world,
+                aes(long, lat, map_id = region),
+                color = "white", fill = "lightgray", size = 0.1)
+q <- q +
+            geom_point(
+                data = join.df_clean_whea_glyphosate,
+                aes(x = x, y = y, color = mass),
+                alpha = 0.1, size = 0.00001, shape = 15) +
+  scale_color_continuous(low = '#ccdbe5' , high = "#114365")
+q <- q+
+  geom_point(data = join.df_clean_whea_glyphosate,
+                aes(x = x, y = y, shape = climate),
+                alpha = 0.5, size = 0.0000000001, fill = NA, color = "lightblue") #+
+            #scale_colour_gradient(low = "lightblue", high = muted("blue"))
+            #scale_color_discrte()
+            #scale_color_viridis(option = "inferno", direction = -1) +
+
+q
+```
+
+```{r}
+p <- ggplot() +
+            geom_map(
+                data = world, map = world,
+                aes(long, lat, map_id = region),
+                color = "white", fill = "lightgray", size = 0.1) +
+            geom_point(
+                data = join.df_clean_whea_glyphosate,
+                aes(x = x, y = y, color = whea_a),
+                alpha = 0.1, size = 0.00001, shape = 15) +
+            #scale_colour_gradient(low = "lightblue", high = muted("blue"))
+  #scale_color_continuous(low = "goldenrod2", high = "blue")
+  scale_color_continuous(low = '#ccdbe5' , high = "#114365")
+            scale_color_viridis(option = "inferno", direction = -1)
+p
+```
+
+```{r}
+colmat<-function(nquantiles=10, upperleft=rgb(0,150,235, maxColorValue=255), upperright=rgb(130,0,80, maxColorValue=255), bottomleft="grey", bottomright=rgb(255,230,15, maxColorValue=255), xlab="x label", ylab="y label"){
+my.data<-seq(0,1,.01)
+my.class<-classIntervals(my.data,n=nquantiles,style="quantile")
+my.pal.1<-findColours(my.class,c(upperleft,bottomleft))
+my.pal.2<-findColours(my.class,c(upperright, bottomright))
+col.matrix<-matrix(nrow = 101, ncol = 101, NA)
+for(i in 1:101){
+my.col<-c(paste(my.pal.1[i]),paste(my.pal.2[i]))
+col.matrix[102-i,]<-findColours(my.class,my.col)}
+plot(c(1,1),pch=19,col=my.pal.1, cex=0.5,xlim=c(0,1),ylim=c(0,1),frame.plot=F, xlab=xlab, ylab=ylab,cex.lab=1.3)
+for(i in 1:101){
+col.temp<-col.matrix[i-1,]
+points(my.data,rep((i-1)/100,101),pch=15,col=col.temp, cex=1)}
+seqs<-seq(0,100,(100/nquantiles))
+seqs[1]<-1
+col.matrix<-col.matrix[c(seqs), c(seqs)]}
+```
+
+```{r}
+col.matrix<-colmat(nquantiles=6, upperleft="blue", upperright="yellow", bottomleft="green", bottomright="red", xlab="climatezone", ylab="dose")
+```
+
+```{r}
+bivariate.map<-function(rasterx, rastery, colormatrix=col.matrix, nquantiles=6){
+quanmean<-getValues(rasterx)
+temp<-data.frame(quanmean, quantile=rep(NA, length(quanmean)))
+brks<-with(temp, unique(quantile(temp,na.rm=TRUE, probs = c(seq(0,1,1/nquantiles)))))
+brks = brks + seq_along(brks) * .Machine$double.eps
+r1<-within(temp, quantile <- cut(quanmean, breaks = brks, labels = 2:length(brks),include.lowest = TRUE))
+quantr<-data.frame(r1[,2]) 
+quanvar<-getValues(rastery)
+temp<-data.frame(quanvar, quantile=rep(NA, length(quanvar)))
+brks<-with(temp, quantile(temp,na.rm=TRUE, probs = c(seq(0,1,1/nquantiles))))
+r2<-within(temp, quantile <- cut(quanvar, breaks = brks, labels = 2:length(brks),include.lowest = TRUE))
+quantr2<-data.frame(r2[,2])
+as.numeric.factor<-function(x) {as.numeric(levels(x))[x]}
+col.matrix2<-colormatrix
+cn<-unique(colormatrix)
+for(i in 1:length(col.matrix2)){
+ifelse(is.na(col.matrix2[i]),col.matrix2[i]<-1,col.matrix2[i]<-which(col.matrix2[i]==cn)[1])}
+cols<-numeric(length(quantr[,1]))
+for(i in 1:length(quantr[,1])){
+a<-as.numeric.factor(quantr[i,1])
+b<-as.numeric.factor(quantr2[i,1])
+cols[i]<-as.numeric(col.matrix2[b,a])}
+r<-rasterx
+r[1:length(r)]<-cols
+return(r)}
+```
+
+```{r}
+whea_glyphosate <- join.df_clean_whea_glyphosate %>%
+  filter(!is.na(`dose_wa_[kg/ha]`)) %>%
+  select(x,y, `dose_wa_[kg/ha]`)
+whea_glyphosate <- rasterFromXYZ(whea_glyphosate)
+
+whea_climatezone <- join.df_clean_whea_glyphosate %>%
+  filter(!is.na(`dose_wa_[kg/ha]`)) %>%
+  #mutate(climate = case_when(climate == "A" ~ "0",
+                            #climate == "B" ~ "10",
+                            #climate == "C" ~ "20",
+                            #climate == "D" ~ "30",
+                            #climate == "E" ~ "40",
+                            #TRUE ~ "6",)) %>%
+  #mutate(climate = as.numeric(climate)) %>%
+  select(x, y, climate)
+  
+whea_climatezone <- rasterFromXYZ(whea_climatezone) 
+
+
+raster.amphibians <- whea_climatezone
+raster.reptiles<-whea_glyphosate
+```
+
+```{r}
+my.colors = colorRampPalette(c("white","lightblue", "yellow","orangered", "red"))
+plot(raster.amphibians,frame.plot=F,axes=F,box=F,add=F,legend.width=1,legend.shrink=1,col=my.colors(255)) 
+map(interior=T,add=T)
+```
+
+```{r}
+my.colors = colorRampPalette(c("white","lightblue", "yellow","orangered", "red"))
+plot(raster.reptiles,frame.plot=F,axes=F,box=F,add=F,legend.width=1,legend.shrink=1,col=my.colors(255)) 
+map(interior=T,add=T)
+```
+
+```{r}
+bivmap<-bivariate.map(raster.amphibians,raster.reptiles, colormatrix=col.matrix, nquantiles=6)
+```
+
+```{r}
+data <- whea_glyphosate %>%
+  left_join(whea_climatezone, by = c("x", "y"))
+
+data <- bi_class(data, x = `dose_wa_[kg/ha]`, y = climate, style = "quantile", dim = 2)
+```
+
+```{r}
+map <- ggplot() +
+  geom_sf(data = data, mapping = aes(fill = bi_class), color = "white", size = 0.1, show.legend = FALSE) +
+  bi_scale_fill(pal = "DkBlue", dim = 3) +
+  labs(
+    title = "Race and Income in St. Louis, MO",
+    subtitle = "Dark Blue (DkBlue) Palette"
+  ) +
+  bi_theme()
+
+map
+finalPlot <- ggdraw() + draw_plot(map, 0, 0, 1, 1)
+```
+```{r}
+library(tmap)
+library(sf)
+library(tidyverse)
+library(cartography)
+
+data(World)
+
+patterns <- c("diamond","grid","hexagon","horizontal", "vertical",
+    "zigzag","left2right","right2left","circle")
+
+Continent_sfc <- do.call(c, lapply(1:nlevels(World$continent), function(i) {
+    World %>% 
+        filter(continent == levels(World$continent)[i]) %>% 
+        hatchedLayer(mode = "sfc", pattern = patterns[i], density = 1)
+}))
+
+Continent_patterns <- st_sf(geometry = Continent_sfc, 
+    continent = levels(World$continent))
+
+tm_shape(World) +
+  tm_fill()
+
+tm_shape(World) +
+    tm_fill("continent") +
+tm_shape(Continent_patterns) +
+    tm_lines(col = "grey50") +
+tm_shape(World) +
+    tm_borders(col = "black")
+```
+```{r}
+install.packages("colorplaner")
+ggplot(data = data, aes(x, y , fill = `dose_wa_[kg/ha]`, fill2 = climate)) + geom_raster() +
+  scale_fill_colourplane(name = "",na.color = "white",
+color_projection = "interpolate",vertical_color = "#FAE30C",
+horizontal_color = "#0E91BE", zero_color = "#E8E6F2",
+limits_y = c(0,1),limits=c(0,1))
+```
+
+
+
+```{r}
+crop_spam <- crop_spam %>%
+  mutate(id_spam = as.numeric(id_spam))
+
+#country count of pesticide
+dose_wa_chemcrop <- summary_wdhaother %>%
+  group_by(name_country) %>%
+  summarize(chemcount = n_distinct(casrn_chemical))
+
+chem <- "Trifloxystrobin"
+casrn <- "141517-21-7"
+dose_wa_chem <- summary_wdhaother %>%
+  #filter(name_ai == chem) %>%
+  filter(casrn_chemical == casrn) %>%
+  left_join(crop_spam, by = c("name_crop_earthstat" = "CROPNAME")) %>%
+  left_join(spam_id, by = c("id_spam" = "ID")) %>%
+  dplyr::select(name_region, name_country, casrn_chemical, name_crop_earthstat, name_cropgroup, wd, `Short Name`) %>%
+  filter(!is.na(`Short Name`))
+
+spam2010_cntr <- spam2010 %>%
+  mutate(x1 = as.numeric(format(round(x,3), nsmall = 3)),
+         y1 = as.numeric(format(round(y,3), nsmall = 3))) %>%
+  dplyr::select(x1, y1, name_cntr)
+
+join.df_clean <- join.df_clean %>%
+  mutate(x1 = as.numeric(format(round(x,3), nsmall = 3)),
+         y1 = as.numeric(format(round(y,3), nsmall = 3))) %>%
+  left_join(spam2010_cntr, by = c("x1", "y1"))
+
+crop <- "rice"
+
+dose_wa_chemcrop <- dose_wa_chem %>%
+  filter(`Short Name` == crop)
+
+join.df_clean_cropchem <- spam2010 %>%
+  dplyr::select(x,y, rice_a, name_cntr) %>%
+  filter(rice_a !=0) %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea, Republic of",
+                                  name_cntr == "Iran  (islamic Republic Of)" ~ "Iran, Islamic Republic of",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~ "United States",
+                                  TRUE ~ name_cntr)) %>%
+  left_join(dose_wa_chemcrop, by = c("name_country" = "name_country"))# %>%
+  #mutate(mass = rice_a * wd)
+
+#data(world)
+
+world <- map_data("world")
+
+p <- ggplot() +
+  geom_map(
+    data = world, map = world,
+    aes(long, lat, map_id = region),
+    color = "white" , fill = "lightgray", size = 0.1
+  ) +
+  geom_point(
+    data = join.df_clean_cropchem,
+    aes(x = x, y = y, color = wd),
+    alpha = 0.1, size = 0.00001, shape = 15
+  ) +
+  scale_color_continuous(low = "goldenrod2", high = "blue", trans = "log", breaks = c(0.03, 0.05, 0.1, 0.2, 0.4), labels = c(0.03, 0.05, 0.1, 0.2, 0.4)) +
+  theme_bw() +
+  #theme(legend.postion = "none") +
+  theme(axis.text = element_blank()) +
+  theme(axis.title = element_blank())
+p
+```
+
+
+#global map of pesticide count
+```{r}
+#country count of pesticide
+chemcount <- summary_wdhaother %>%
+  group_by(name_country) %>%
+  summarize(chemcount = n_distinct(casrn_chemical)) %>%
+  left_join(harmonization_countryiso, by = "name_country")
+
+world <- getMap(resolution = "high")
+class(world)
+
+world <- st_as_sf(world)
+class(world)
+
+world_chemcount <- world %>%
+  left_join(chemcount, by = c("ISO_A3" = "ISO3"))
+
+ggplot(data = world_chemcount) +
+    geom_sf(aes(fill = chemcount)) +
+    scale_fill_continuous(low = "goldenrod2", high = "blue", na.value="lightgrey") +
+  theme_bw()
+
+
+```
+
+#all chemicals per crop/cropgroup
+```{r}
+crop_spam <- crop_spam %>%
+  mutate(id_spam = as.numeric(id_spam))
+
+
+dose_wa_chem <- summary_wdhaother %>%
+  #filter(name_ai == chem) %>%
+  filter(casrn_chemical == casrn) %>%
+  left_join(crop_spam, by = c("name_crop_earthstat" = "CROPNAME")) %>%
+  left_join(spam_id, by = c("id_spam" = "ID")) %>%
+  dplyr::select(name_region, name_country, casrn_chemical, name_crop_earthstat, name_cropgroup, wd, `Short Name`) %>%
+  filter(!is.na(`Short Name`))
+
+dose_wa_crop <- summary_wdhaother %>%
+  group_by(name_crop_earthstat, name_country, name_region, name_cropgroup) %>%
+  summarize(masssum = sum(summass)) %>%
+  mutate(masssum = round(masssum,0)) %>%
+  left_join(crop_spam, by = c("name_crop_earthstat" = "CROPNAME")) %>%
+  left_join(spam_id, by = c("id_spam" = "ID")) %>%
+  dplyr::select(name_region, name_country, name_crop_earthstat, name_cropgroup, masssum, `Short Name`) %>%
+  filter(!is.na(`Short Name`))
+  
+
+spam2010_cntr <- spam2010 %>%
+  mutate(x1 = as.numeric(format(round(x,3), nsmall = 3)),
+         y1 = as.numeric(format(round(y,3), nsmall = 3))) %>%
+  dplyr::select(x1, y1, name_cntr)
+
+join.df_clean <- join.df_clean %>%
+  mutate(x1 = as.numeric(format(round(x,3), nsmall = 3)),
+         y1 = as.numeric(format(round(y,3), nsmall = 3))) %>%
+  left_join(spam2010_cntr, by = c("x1", "y1"))
+
+crop <- "rice"
+
+dose_wa_chemcrop <- dose_wa_crop %>%
+  filter(`Short Name` == crop)
+
+join.df_clean_cropchem <- spam2010 %>%
+  dplyr::select(x,y, rice_a, name_cntr) %>%
+  filter(rice_a !=0) %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea, Republic of",
+                                  name_cntr == "Iran  (islamic Republic Of)" ~ "Iran, Islamic Republic of",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~ "United States of America",
+                                  TRUE ~ name_cntr)) %>%
+  left_join(dose_wa_chemcrop, by = c("name_country" = "name_country"))# %>%
+  #mutate(mass = rice_a * wd)
+
+#data(world)
+
+world <- map_data("world")
+
+p <- ggplot() +
+  geom_map(
+    data = world, map = world,
+    aes(long, lat, map_id = region),
+    color = "white" , fill = "lightgray", size = 0.1
+  ) +
+  geom_point(
+    data = join.df_clean_cropchem,
+    aes(x = x, y = y, color = masssum),
+    alpha = 0.1, size = 0.00001, shape = 15
+  ) +
+  scale_color_continuous(low = "goldenrod2", high = "blue") +
+  theme_bw() +
+  #theme(legend.postion = "none") +
+  theme(axis.text = element_blank()) +
+  theme(axis.title = element_blank())
+p
+```
+
+```{r}
+join_short_uni_ratio_cccc <- join_short_uni_ratio %>%
+  group_by(variable, name_cntr, layer_climate) %>%
+  summarize(count = n())
+spam2010_afg <- spam2010 %>%
+  filter(iso3 == "AFG")
+sum(spam2010_afg$rice_a)
+summary_cccmass <- input_appbbch %>%
+  filter(casrn_chemical == "141517-21-7") %>%
+  group_by(name_country, name_crop_earthstat) %>%
+  summarize(mass = sum(applied_mass_kkg)*1000) %>%
+  filter(!is.na(name_crop_earthstat))
+chem_pred_xgb_full <- read.csv("C:/me/data gaps/20221007chem_pred_xgb_full141517-21-7.csv")
+chem_pred_xgb_full_country <- chem_pred_xgb_full %>%
+  left_join(join_short_uni, by = c("HDI", "landevap", "score", "name_crop_earthstat" = "variable")) %>%
+  mutate(massdose = 10^(pred.xgb)) %>%
+  group_by(name_country, name_crop_earthstat) %>%
+  summarize(massdose = mean(massdose)) %>%
+  left_join(country_croparea, by = c("name_country", "name_crop_earthstat" = "variable")) %>%
+  mutate(mass = massdose * croparea) %>%
+  filter(mass != 0) %>%
+  select(name_country, name_crop_earthstat, mass)
+summary_cccmass_full <- rbind(summary_cccmass, chem_pred_xgb_full_country)
+
+spam2010_m_mass <- spam2010_m %>%
+  filter(adjustedarea != 0) %>%
+  #left_join(summary_cccmass_full, by = c("name_cntr"="name_country", "CROPNAME" = "name_crop_earthstat"))
+  left_join(summary_cccmass, by = c("name_cntr"="name_country", "CROPNAME" = "name_crop_earthstat"))
+spam2010_m_mass_group <- spam2010_m_mass %>%
+  filter(CROPNAME == "maize") %>%
+  group_by(name_cntr, CROPNAME) %>%
+  mutate(sumarea = sum(adjustedarea, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(masspergrid = mass/sumarea*adjustedarea) %>%
+  group_by(cell5m, name_cntr) %>%
+  summarize(massacrosscrop = sum(masspergrid, na.rm = TRUE))
+spam2010_cell5m <- spam2010 %>%
+  select(x,y,cell5m)
+
+spam2010_m_mass_group <- spam2010_m_mass_group %>%
+  left_join(spam2010_cell5m, by = c("cell5m"))
+
+spam2010_m_mass_group_graph <- spam2010_m_mass_group %>%
+  filter(massacrosscrop != 0)
+spam2010_m_mass1 <- spam2010_m_mass_group %>%
+  filter(massacrosscrop >0 & massacrosscrop <=1)
+spam2010_m_mass0 <- spam2010_m_mass_group %>%
+  filter(massacrosscrop == 0)
+p <- ggplot() +
+  geom_map(
+    data = world, map = world,
+    aes(long, lat, map_id = region),
+    color = "white" , fill = "lightgray", size = 0.1
+  ) +
+  geom_point(
+    data = spam2010_m_mass0,
+    aes(x = x, y = y),color = "grey75",
+    alpha = 0.1, size = 0.00001, shape = 15
+  ) +
+  # geom_point(
+  #   data = spam2010_m_mass1,
+  #   aes(x = x, y = y),color = "grey45",
+  #   alpha = 0.1, size = 0.00001, shape = 15
+  # ) +
+  geom_point(
+    data = spam2010_m_mass_group_graph,
+    aes(x = x, y = y, color = massacrosscrop),
+    alpha = 0.1, size = 0.00001, shape = 15
+  ) +
+  scale_color_continuous(low = "goldenrod2", high = "blue", trans = "log", breaks = c(0.01, 0.1, 1, 100), labels = c(0.01, 0.1, 1, 100)) +
+  theme_bw() +
+  #theme(legend.postion = "none") +
+  theme(axis.text = element_blank()) +
+  theme(axis.title = element_blank())
+p
+ggsave("20220922mappingmassatrazine.jpeg")
+spam2010_m <- spam2010_m %>%
+  mutate(variable = str_remove(variable, "_a")) %>%
+  mutate(name_country = case_when(name_cntr == "The Former Yugoslav Republic O" ~ "Macedonia, the former Yugoslav Republic of",
+                                  name_cntr == "Republic Of Korea" ~ "Korea, Republic of",
+                                  name_cntr == "Iran  (islamic Republic Of)" ~ "Iran, Islamic Republic of",
+                                  name_cntr == "United Republic Of Tanzania" ~ "Tanzania, United Republic of",
+                                  name_cntr == "U.k. Of Great Britain And Nort" ~ "United Kingdom",
+                                  name_cntr == "United States Of America" ~ "United States of America",
+                                  TRUE ~ name_cntr))
+
+spam_country <- as.data.frame(unique(spam2010_m$name_cntr))
+summary_country <- as.data.frame(unique(summary_cccmass_full$name_country))
+spam_summary_country <- spam_country %>%
+  full_join(summary_country, by = c("unique(spam2010_m$name_cntr)" = "unique(summary_cccmass_full$name_country)"), keep = TRUE)
+```
+
+```{r}
+n_distinct(application_imputation$name_crop_earthstat)
+
+n_distinct(application_imputation$name_country)
+
+n_distinct(application_imputation$casrn_chemical)
+
+application_imputation_ccc <- application_imputation %>%
+  group_by(name_country, name_crop_earthstat, casrn_chemical) %>%
+  summarize(count = n())
+```
+

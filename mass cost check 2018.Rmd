@@ -1,0 +1,79 @@
+---
+title: "mass cost check 2018"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(purrr)
+library(ggthemes)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r}
+data_2018 <- read.csv("C:/me/calculation/input_bayer.csv")
+harmonization_country <- read_xlsx("C:/me/Database/harmonization/harmonization_country.xlsx", sheet = 1)
+country_hdi <- read_xlsx("C:/me/Database/harmonization/harmonization_country.xlsx", sheet = 3)
+```
+
+```{r}
+data_2018_countrycostmass <- data_2018 %>%
+  group_by(name_country_bayer) %>%
+  summarize(sumcost = sum(Value.User, na.rm = TRUE), summass = sum(applied_mass_.1000kg.yr., na.rm = TRUE)) %>%
+  mutate(costpermass = sumcost/summass)
+
+data_2018_countrycostmass <- data_2018_countrycostmass %>%
+  left_join(harmonization_country, by = c("name_country_bayer")) %>%
+  left_join(country_hdi, by = c("name_country"))
+
+data_2018_countrycostmass <- data_2018_countrycostmass %>%
+  mutate(gdppercropland = gdp/`agricultural land`)%>%
+  mutate(costperland = sumcost/`agricultural land`)
+
+
+```
+
+```{r}
+data_2018_countrycostmass %>%
+  mutate(costpermassland = costpermass * `agricultural land`) %>%
+  filter(!is.na(gdppercapita)) %>%
+  filter(!costpermass < 10) %>%
+  #filter(costpermass < 100) %>%
+  ggplot(aes(x = hdi, y = costperland)) +
+  geom_point(aes(color = name_region)) +
+  stat_smooth(method = "lm") +
+  #stat_poly_line() +
+  #stat_poly_eq() +
+  scale_color_viridis(discrete = TRUE) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x)))
+
+#fit <- lm(log10(gdppercapita) ~ log10(costperland), data_2018_countrycostmass)
+#summary(fit)
+data_2018_countrycostmass %>%
+  ggplot(aes(x = costpermass)) +
+  geom_histogram()
+```
+
+```{r}
+bbch_ci_spec <- read_xlsx("C:/me/PestLCI/cropinterception/Linders crop interception.xlsx", sheet = 2)
+bbch_ci_spec %>%
+  ggplot(aes(x = `BBCH Range`, y = FI)) +
+  geom_bar(stat="identity", position = position_nudge(x = 0.5)) +
+  geom_vline(xintercept = "0009", color = "blue") +
+  geom_vline(xintercept = "1019", color = "blue") +
+  geom_vline(xintercept = "2029", color = "blue") +
+  geom_vline(xintercept = "4049", color = "blue") +
+  geom_vline(xintercept = "7079", color = "blue") +
+  geom_vline(xintercept = "9099", color = "blue") +
+  geom_vline(xintercept = "6069", color = "red") +
+  facet_wrap(~`Crop Class`)
+```
+```{r}
+
+```
+

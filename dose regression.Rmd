@@ -1,0 +1,1901 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+purrr
+dplyr
+tidyr
+readxl
+
+# regression for dose
+```{r}
+input_bayer_2018
+fao_spam <- read_xlsx("C:/me/Database/harmonization/Crop_Data.xlsx", sheet = 1)
+spam_id <- read_xlsx("C:/me/Database/harmonization/Crop_Data.xlsx", sheet = 2)
+bayer_fao <- read_xlsx("C:/me/Database/harmonization/harmonization_crop.xlsx", sheet = 1)
+```
+
+
+```{r}
+input_bayer_2018 <- read_xlsx("C:/me/calculation/input_bayer.xlsx")
+
+files <- list.files(path = "C:/me/Database/harmonization/", pattern = "*.xlsx", full.names = TRUE)
+file_name <- list.files(path = "C:/me/Database/harmonization/", pattern = "*.xlsx")
+
+readexcel <- function(x, y){
+  #browser()
+  x <- read_excel(x)
+  y <- gsub(".xlsx", "", y)
+  assign(y, x, envir = .GlobalEnv)
+}
+
+
+harmonization_country <- read_xlsx("C:/me/Database/harmonization/harmonization_country.xlsx", sheet = 1)
+harmonization_crop <- read_xlsx("C:/me/Database/harmonization/harmonization_crop.xlsx", sheet = 1)
+harmonization_casrn <- read_xlsx("C:/me/Database/harmonization/harmonization_casrn.xlsx", sheet = 1)
+harmonization_bbch <- read_xlsx("C:/me/Database/harmonization/harmonization_bbch.xlsx", sheet = 1)
+harmonization_app <- read_xlsx("C:/me/Database/harmonization/harmonization_app.xlsx", sheet = 1)
+map2(files, file_name, readexcel)
+```
+
+```{r}
+#left join to the harmonization_country table, change if the parameter names change
+input_bayer_2018_cntr <- input_bayer_2018 %>%
+  left_join(harmonization_country, by = c("name_country_bayer" = "name_country_bayer"))
+
+# check if all countries can be allocated
+# currently no records for CENTRAL AMERICA-CARIBBEAN and change them still to CENTRAL AMERICA-CARIBBEAN
+input_bayer_2018_cntrna <- input_bayer_2018_cntr %>%
+  filter(is.na(name_country))
+input_bayer_2018_cntr <- input_bayer_2018_cntr %>% 
+  mutate(name_country = replace_na(name_country, "CENTRAL AMERICA-CARIBBEAN"))
+```
+
+```{r}
+# left join to the harmonization_crop table, change if the parameter names change
+input_bayer_2018_crop <- input_bayer_2018_cntr %>%
+  left_join(fao_spam, by = c("name_crop_bayer" = "name_crop_bayer"))
+
+# check if all crops can be allocated
+# change after confirmation of the crop names
+input_bayer_2018_cropna <- input_bayer_2018_crop %>%
+  filter(is.na(name_crop_earthstat))
+input_bayer_2018_crop <- input_bayer_2018_crop %>%
+  filter(!is.na(name_crop_earthstat))
+```
+
+
+```{r}
+# left join to the harmonization_casrn table, change if the parameter names change
+input_bayer_2018_cas <- input_bayer_2018_crop %>%
+  left_join(harmonization_casrn, by = c("casrn_chemical_bayer" = "casrn_chemical_bayer", "name_activeingredient_bayer" = "name_ai_bayer"))
+
+# check if all crop stages can be allocated
+# check in casrn_check.rmd if new cas number introduced
+input_bayer_2018_casna <- input_bayer_2018_cas %>%
+  filter(is.na(casrn_chemical))
+
+# 26536 records with no cas rn
+#input_bayer_2018_5name <- input_bayer_2018_5 %>%
+  #filter(casrn_chemical == "NAME")
+
+# remove cas rn with names
+input_bayer_2018_cas <- input_bayer_2018_cas %>%
+  filter(casrn_chemical != "NAME")
+```
+
+```{r}
+# left join to the def_chemical table, change if the parameter names change
+input_bayer_2018_chem <- input_bayer_2018_cas %>%
+  left_join(def_chemical, by = c("casrn_chemical" = "casrn_chemical"))
+
+
+unique(input_bayer_2018_chemna$casrn_chemical)
+# check if all active ingredients can be allocated
+# 
+input_bayer_2018_chemna <- input_bayer_2018_chem %>%
+  filter(is.na(name_ai))
+input_bayer_2018_chem$
+```
+
+```{r}
+# left join to the harmonization_bbch table, change if the parameter names change
+input_bayer_2018_bbch <- input_bayer_2018_cas %>%
+  left_join(harmonization_bbch, by = c("name_cropstage" = "name_cropstage"))
+
+# check if all crop stage can be allocated
+# currently remove all the records with unclear crop stage (838 records), not relating to the applied mass?
+input_bayer_2018_bbchna <- input_bayer_2018_bbch %>%
+  filter(is.na(code_bbch))
+input_bayer_2018_bbch <- input_bayer_2018_bbch %>%
+  filter(!is.na(code_bbch))
+```
+
+
+
+```{r}
+input_bayer_2018_c <- input_bayer_2018_cas %>%
+  filter(!is.na(`treated_area_[1000ha/yr]`)) %>%
+  filter(`treated_area_[1000ha/yr]` != 0) %>%
+  filter(`applied_mass_[1000kg/yr]` != 0) %>%
+  mutate(`dose_[kg/ha]` = round(`applied_mass_[1000kg/yr]`/`treated_area_[1000ha/yr]`,2)) %>%
+  select(id_bayer, id_scenariobayer, name_country, name_region, name_crop_bayer, name_crop_earthstat, name_crop_FAO, name_cropgroup.x, name_cropgroup.y, casrn_chemical, name_ai, name_cropstage,code_bbch_bayer, `treated_area_[1000ha/yr]`, name_indication, `applied_mass_[1000kg/yr]`, `dose_[kg/ha]`, Product, Distributor, name_crop_spam)
+
+n_distinct(c(input_bayer_2018_c$name_crop_spam, input_bayer_2018_c$name_cropgroup.y))
+```
+
+```{r}
+input_bayer_2018_brazil <- input_bayer_2018_c %>%
+  filter(name_crop_earthstat == "soybean") %>%
+  filter(name_country == "Brazil")
+sum(input_bayer_2018_brazil$`treated_area_[1000ha/yr]`)
+sum(input_bayer_2018_brazil$`applied_mass_[1000kg/yr]`)
+```
+
+
+```{r}
+unique(input_bayer_2018_c$name_cropgroup.y)
+```
+
+```{r}
+denmark_c <- input_bayer_2018_c %>%
+  filter(name_country == "Denmark")
+```
+
+```{r}
+formula <- y ~ x
+denmark_c %>%
+  ggplot(aes(x = `treated_area_[1000ha/yr]`, y = `applied_mass_[1000kg/yr]`)) + 
+  geom_point(aes(color = name_indication), alpha = 0.3) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  theme_bw() + 
+  facet_wrap(~ name_cropgroup.y, ncol = 3, scales = "free") +
+  geom_smooth(method=lm, se=FALSE, fullrange=TRUE, color = "#98AFC7") +
+  scale_color_brewer(palette="Paired") +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = 0.15,
+               formula = formula, parse = TRUE, size = 4) +
+  labs(title = "linear regression categorized by crop (Denmark)")
+  
+```
+
+```{r}
+formula <- y ~ x
+denmark_c %>%
+  ggplot(aes(x = `treated_area_[1000ha/yr]`, y = `applied_mass_[1000kg/yr]`)) + 
+  geom_point(aes(color = name_cropgroup.y), alpha = 0.3) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  theme_bw() + 
+  facet_wrap(~ name_indication, ncol = 3, scales = "free") +
+  geom_smooth(method=lm, se=FALSE, fullrange=TRUE, color = "#98AFC7") +
+  scale_color_brewer(palette="Paired") +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = 0.15,
+               formula = formula, parse = TRUE, size = 4) +
+  labs(title = "linear regression categorized by targeted class (Denmark)")  
+```
+
+```{r}
+formula <- y ~ x
+denmark_c %>%
+  ggplot(aes(x = `treated_area_[1000ha/yr]`, y = `applied_mass_[1000kg/yr]`, color = name_cropgroup.y)) + 
+  geom_point(alpha = 0.3) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  theme_bw() + 
+  facet_wrap(~ name_indication, ncol = 3, scales = "free") +
+  geom_smooth(method=lm, se=FALSE, fullrange=FALSE, alpha = 0.5) +
+  scale_color_brewer(palette="Paired") #+
+  #stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               #label.x.npc = "right", label.y.npc = 0.15,
+               #formula = formula, parse = TRUE, size = 3)  
+```
+
+
+```{r}
+library(ggpmisc)
+formula <- y ~ x
+denmark_c %>%
+  ggplot(aes(x = `treated_area_[1000ha/yr]`, y = `applied_mass_[1000kg/yr]`, color = name_cropgroup.y)) + 
+  geom_point(alpha = 0.3) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_continuous(trans= scales::pseudo_log_trans(sigma = 10^-3, base = 10)) +
+  theme_bw() + 
+  facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+  geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired") +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = 0.15,
+               formula = formula, parse = TRUE, size = 3) +
+  labs(title = "linear regression categorized by targeted class & crop (Denmark)") 
+  
+```
+
+
+```{r}
+denmark_c2 <- input_bayer_2018_c %>%
+  filter(name_country =="Denmark")
+
+denmark_c2 %>%
+  ggplot(aes(x = casrn_chemical, y = `dose_[kg/ha]`, color = name_cropgroup.y)) +
+  geom_point(alpha = 0.3) +
+  theme_bw() +
+  #facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+  geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired")
+```
+
+```{r}
+denmark_c2 %>%
+  ggplot(aes(x = name_indication, y = `dose_[kg/ha]`)) +
+  geom_jitter(alpha = 0.5, width = 0.2, aes(color = name_cropgroup.y)) +
+  geom_boxplot(size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 3) +
+  theme_minimal() +
+  #facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired") +
+  coord_flip()
+```
+
+```{r}
+# remove outliers
+outliers <- boxplot(denmark_c2$`dose_[kg/ha]`, plot = FALSE)$out
+
+denmark_c2_rm <- denmark_c2 %>%
+  group_by(name_indication) %>%
+  filter(!`dose_[kg/ha]` %in% boxplot.stats(`dose_[kg/ha]`)$out) %>%
+  ungroup
+```
+
+```{r}
+denmark_c2 %>%
+  group_by(name_indication) %>%
+  filter(!`dose_[kg/ha]` %in% boxplot.stats(`dose_[kg/ha]`)$out) %>%
+  ggplot(aes(x = name_indication, y = `dose_[kg/ha]`)) +
+  geom_boxplot(size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 3) +
+  geom_jitter(alpha = 0.5, width = 0.2, aes(color = name_cropgroup.y)) +
+  theme_minimal() +
+  #facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired") +
+  coord_flip()
+```
+
+```{r}
+denmark_c2_rm %>%
+  ggplot(aes(x = name_indication, y = `dose_[kg/ha]`)) +
+  geom_boxplot(size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 3) +
+  geom_jitter(alpha = 0.5, width = 0.2, aes(color = name_cropgroup.y)) +
+  theme_minimal() +
+  #facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired") +
+  coord_flip()
+```
+
+```{r}
+library(ggpmisc)
+formula <- y ~ x
+denmark_c2_rm %>%
+  ggplot(aes(x = `treated_area_[1000ha/yr]`, y = `applied_mass_[1000kg/yr]`, color = name_cropgroup.y)) + 
+  geom_point(alpha = 0.3) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_continuous(trans= scales::pseudo_log_trans(sigma = 10^-3, base = 10)) +
+  theme_bw() + 
+  facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+  geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired") +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = 0.15,
+               formula = formula, parse = TRUE, size = 3) +
+  labs(title = "linear regression categorized by targeted class & crop (Denmark)") 
+  
+```
+
+```{r}
+formula <- y ~ x
+denmark_c2_rm %>%
+  ggplot(aes(x = `treated_area_[1000ha/yr]`, y = `applied_mass_[1000kg/yr]`)) + 
+  geom_point(aes(color = name_indication), alpha = 0.3) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  theme_bw() + 
+  facet_wrap(~ name_cropgroup.y, ncol = 3, scales = "free") +
+  geom_smooth(method=lm, se=FALSE, fullrange=TRUE, color = "#98AFC7") +
+  scale_color_brewer(palette="Paired") +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = 0.15,
+               formula = formula, parse = TRUE, size = 4) +
+  labs(title = "linear regression categorized by crop (Denmark)")
+  
+```
+
+```{r}
+formula <- y ~ x
+denmark_c2_rm %>%
+  ggplot(aes(x = `treated_area_[1000ha/yr]`, y = `applied_mass_[1000kg/yr]`)) + 
+  geom_point(aes(color = name_cropgroup.y), alpha = 0.3) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  theme_bw() + 
+  facet_wrap(~ name_indication, ncol = 3, scales = "free") +
+  geom_smooth(method=lm, se=FALSE, fullrange=TRUE, color = "#98AFC7") +
+  scale_color_brewer(palette="Paired") +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = 0.15,
+               formula = formula, parse = TRUE, size = 4) +
+  labs(title = "linear regression categorized by targeted class (Denmark)")  
+```
+```{r}
+denmark_c2_rm %>%
+  ggplot(aes(x = casrn_chemical, y = `dose_[kg/ha]`, color = name_cropgroup.y)) +
+  geom_point(alpha = 0.3) +
+  theme_bw() +
+  #facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+  geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired")
+```
+
+```{r}
+denmark_c3 <- denmark_c2
+denmark_c3 %>%
+  ggplot(aes(x = name_cropgroup.y, y = `dose_[kg/ha]`)) +
+  geom_jitter(alpha = 0.5, width = 0.2, aes(color = name_indication)) +
+  geom_boxplot(size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 3) +
+  theme_minimal() +
+  #facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired") +
+  coord_flip()
+```
+
+
+```{r}
+# remove outliers
+outliers <- boxplot(denmark_c3$`dose_[kg/ha]`, plot = FALSE)$out
+
+denmark_c3_rm <- denmark_c3 %>%
+  group_by(name_cropgroup.y) %>%
+  filter(!`dose_[kg/ha]` %in% boxplot.stats(`dose_[kg/ha]`)$out) %>%
+  ungroup
+```
+
+```{r}
+denmark_c3 %>%
+  group_by(name_cropgroup.y) %>%
+  filter(!`dose_[kg/ha]` %in% boxplot.stats(`dose_[kg/ha]`)$out) %>%
+  ggplot(aes(x = name_cropgroup.y, y = `dose_[kg/ha]`)) +
+  geom_boxplot(size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 3) +
+  geom_jitter(alpha = 0.5, width = 0.2, aes(color = name_indication)) +
+  theme_minimal() +
+  #facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired") +
+  coord_flip()
+```
+
+```{r}
+denmark_c3_rm %>%
+  ggplot(aes(x = name_cropgroup.y, y = `dose_[kg/ha]`)) +
+  geom_boxplot(size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 3) +
+  geom_jitter(alpha = 0.5, width = 0.2, aes(color = name_indication)) +
+  theme_minimal() +
+  #facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired") +
+  coord_flip()
+```
+
+```{r}
+denmark_c4_rm <- denmark_c3 %>%
+  group_by(name_cropgroup.y, name_indication) %>%
+  filter(!`dose_[kg/ha]` %in% boxplot.stats(`dose_[kg/ha]`)$out) %>%
+  ungroup
+library(ggpmisc)
+formula <- y ~ x
+denmark_c4_rm %>%
+  ggplot(aes(x = `treated_area_[1000ha/yr]`, y = `applied_mass_[1000kg/yr]`, color = name_cropgroup.y)) + 
+  geom_point(alpha = 0.3) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_continuous(trans= scales::pseudo_log_trans(sigma = 10^-3, base = 10)) +
+  theme_bw() + 
+  facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+  geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired") +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = 0.15,
+               formula = formula, parse = TRUE, size = 3) +
+  labs(title = "linear regression categorized by targeted class & crop (Denmark)") 
+  
+```
+
+```{r}
+formula <- y ~ x
+denmark_c3_rm %>%
+  ggplot(aes(x = `treated_area_[1000ha/yr]`, y = `applied_mass_[1000kg/yr]`)) + 
+  geom_point(aes(color = name_indication), alpha = 0.3) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  theme_bw() + 
+  facet_wrap(~ name_cropgroup.y, ncol = 3, scales = "free") +
+  geom_smooth(method=lm, se=FALSE, fullrange=TRUE, color = "#98AFC7") +
+  scale_color_brewer(palette="Paired") +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = 0.15,
+               formula = formula, parse = TRUE, size = 4) +
+  labs(title = "linear regression categorized by crop (Denmark)")
+  
+```
+
+```{r}
+formula <- y ~ x
+denmark_c3_rm %>%
+  ggplot(aes(x = `treated_area_[1000ha/yr]`, y = `applied_mass_[1000kg/yr]`)) + 
+  geom_point(aes(color = name_cropgroup.y), alpha = 0.3) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  theme_bw() + 
+  facet_wrap(~ name_indication, ncol = 3, scales = "free") +
+  geom_smooth(method=lm, se=FALSE, fullrange=TRUE, color = "#98AFC7") +
+  scale_color_brewer(palette="Paired") +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = 0.15,
+               formula = formula, parse = TRUE, size = 4) +
+  labs(title = "linear regression categorized by targeted class (Denmark)")  
+```
+
+```{r}
+# remove outliers
+outliers <- boxplot(input_bayer_2018_c$`dose_[kg/ha]`, plot = FALSE)$out
+
+input_bayer_2018_c_rm <- input_bayer_2018_c %>%
+  group_by(name_cropgroup.y) %>%
+  filter(!`dose_[kg/ha]` %in% boxplot.stats(`dose_[kg/ha]`)$out) %>%
+  ungroup
+```
+
+```{r}
+input_bayer_2018_c %>%
+  ggplot(aes(x = name_cropgroup.y, y = `dose_[kg/ha]`)) +
+  geom_jitter(alpha = 0.5, width = 0.2, aes(color = name_indication)) +
+  geom_boxplot(size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 3) +
+  theme_minimal() +
+  #facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired") +
+  coord_flip()
+```
+
+```{r}
+input_bayer_2018_c %>%
+  group_by(name_cropgroup.y) %>%
+  filter(!`dose_[kg/ha]` %in% boxplot.stats(`dose_[kg/ha]`)$out) %>%
+  ggplot(aes(x = name_cropgroup.y, y = `dose_[kg/ha]`)) +
+  geom_boxplot(size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 3) +
+  geom_jitter(alpha = 0.5, width = 0.2, aes(color = name_indication)) +
+  theme_minimal() +
+  #facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired") +
+  coord_flip()
+```
+
+```{r}
+input_bayer_2018_c_rm %>%
+  ggplot(aes(x = name_cropgroup.y, y = `dose_[kg/ha]`)) +
+  geom_boxplot(size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 3) +
+  geom_jitter(alpha = 0.5, width = 0.2, aes(color = name_indication)) +
+  theme_minimal() +
+  #facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired") +
+  coord_flip()
+```
+
+```{r}
+library(ggpmisc)
+formula <- y ~ x
+input_bayer_2018_c_rm %>%
+  ggplot(aes(x = `treated_area_[1000ha/yr]`, y = `applied_mass_[1000kg/yr]`, color = name_cropgroup.y)) + 
+  geom_point(alpha = 0.3) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_continuous(trans= scales::pseudo_log_trans(sigma = 10^-3, base = 10)) +
+  theme_bw() + 
+  facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+  geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired") +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = 0.15,
+               formula = formula, parse = TRUE, size = 3) +
+  labs(title = "linear regression categorized by targeted class & crop") 
+  
+```
+
+```{r}
+formula <- y ~ x
+input_bayer_2018_c_rm %>%
+  ggplot(aes(x = `treated_area_[1000ha/yr]`, y = `applied_mass_[1000kg/yr]`)) + 
+  geom_point(aes(color = name_indication), alpha = 0.3) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  theme_bw() + 
+  facet_wrap(~ name_cropgroup.y, ncol = 3, scales = "free") +
+  geom_smooth(method=lm, se=FALSE, fullrange=TRUE, color = "#98AFC7") +
+  scale_color_brewer(palette="Paired") +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = 0.15,
+               formula = formula, parse = TRUE, size = 4) +
+  labs(title = "linear regression categorized by crop")
+  
+```
+
+```{r}
+formula <- y ~ x
+input_bayer_2018_c_rm %>%
+  ggplot(aes(x = `treated_area_[1000ha/yr]`, y = `applied_mass_[1000kg/yr]`)) + 
+  geom_point(aes(color = name_cropgroup.y), alpha = 0.3) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  theme_bw() + 
+  facet_wrap(~ name_indication, ncol = 3, scales = "free") +
+  geom_smooth(method=lm, se=FALSE, fullrange=TRUE, color = "#98AFC7") +
+  scale_color_brewer(palette="Paired") +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = 0.15,
+               formula = formula, parse = TRUE, size = 4) +
+  labs(title = "linear regression categorized by targeted class")  
+```
+
+```{r}
+input_bayer_2018_c %>%
+  ggplot(aes(x = name_indication, y = `dose_[kg/ha]`)) +
+  geom_jitter(alpha = 0.5, width = 0.2, aes(color = name_cropgroup.y)) +
+  geom_boxplot(size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 3) +
+  theme_minimal() +
+  #facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired") +
+  coord_flip()
+```
+
+```{r}
+# remove outliers
+outliers <- boxplot(denmark_c2$`dose_[kg/ha]`, plot = FALSE)$out
+
+input_bayer_2018_c_rm <- input_bayer_2018_c %>%
+  group_by(name_indication) %>%
+  filter(!`dose_[kg/ha]` %in% boxplot.stats(`dose_[kg/ha]`)$out) %>%
+  ungroup
+```
+
+```{r}
+input_bayer_2018_c %>%
+  group_by(name_indication) %>%
+  filter(!`dose_[kg/ha]` %in% boxplot.stats(`dose_[kg/ha]`)$out) %>%
+  ggplot(aes(x = name_indication, y = `dose_[kg/ha]`)) +
+  geom_boxplot(size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 3) +
+  geom_jitter(alpha = 0.5, width = 0.2, aes(color = name_cropgroup.y)) +
+  theme_minimal() +
+  #facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired") +
+  coord_flip()
+```
+
+```{r}
+input_bayer_2018_c_rm %>%
+  ggplot(aes(x = name_indication, y = `dose_[kg/ha]`)) +
+  geom_boxplot(size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 3) +
+  geom_jitter(alpha = 0.5, width = 0.2, aes(color = name_cropgroup.y)) +
+  theme_minimal() +
+  #facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired") +
+  coord_flip()
+```
+
+```{r}
+library(ggpmisc)
+formula <- y ~ x
+input_bayer_2018_c_rm %>%
+  ggplot(aes(x = `treated_area_[1000ha/yr]`, y = `applied_mass_[1000kg/yr]`, color = name_cropgroup.y)) + 
+  geom_point(alpha = 0.3) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_continuous(trans= scales::pseudo_log_trans(sigma = 10^-3, base = 10)) +
+  theme_bw() + 
+  facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+  geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired") +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = 0.15,
+               formula = formula, parse = TRUE, size = 3) +
+  labs(title = "linear regression categorized by targeted class & crop") 
+  
+```
+
+```{r}
+formula <- y ~ x
+input_bayer_2018_c_rm %>%
+  ggplot(aes(x = `treated_area_[1000ha/yr]`, y = `applied_mass_[1000kg/yr]`)) + 
+  geom_point(aes(color = name_indication), alpha = 0.3) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  theme_bw() + 
+  facet_wrap(~ name_cropgroup.y, ncol = 3, scales = "free") +
+  geom_smooth(method=lm, se=FALSE, fullrange=TRUE, color = "#98AFC7") +
+  scale_color_brewer(palette="Paired") +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = 0.15,
+               formula = formula, parse = TRUE, size = 4) +
+  labs(title = "linear regression categorized by crop")
+  
+```
+
+```{r}
+formula <- y ~ x
+input_bayer_2018_c_rm %>%
+  ggplot(aes(x = `treated_area_[1000ha/yr]`, y = `applied_mass_[1000kg/yr]`)) + 
+  geom_point(aes(color = name_cropgroup.y), alpha = 0.3) +
+  #scale_x_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              #labels = trans_format("log10", math_format(10^.x))) +
+  #
+  theme_bw() + 
+  facet_wrap(~ name_indication, ncol = 3, scales = "free") +
+  geom_smooth(method=lm, se=FALSE, fullrange=TRUE, color = "#98AFC7") +
+  scale_color_brewer(palette="Paired") +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = 0.15,
+               formula = formula, parse = TRUE, size = 4) +
+  labs(title = "linear regression categorized by targeted class")  
+```
+
+# dose same?
+```{r}
+denmark_c_dose <- denmark_c %>%
+  group_by(casrn_chemical, name_country, name_ai, name_crop_earthstat) %>%
+  summarize(mindose = min(`dose_[kg/ha]`), maxdose = max(`dose_[kg/ha]`), avgdose = mean(`dose_[kg/ha]`))
+```
+
+# weighted average by country for each chemical
+```{r}
+dose_wa <- input_bayer_2018_c %>%
+  group_by(name_ai) %>%
+  filter(sum(`applied_mass_[1000kg/yr]`) > 1500) %>%
+  group_by(name_ai, name_crop_earthstat) %>%
+  mutate(sumall = sum(`applied_mass_[1000kg/yr]`)) %>%
+  group_by(name_ai, name_crop_earthstat, name_country) %>%
+  mutate(sum = sum(`applied_mass_[1000kg/yr]`)) %>%
+  group_by(name_region, name_country, name_ai, casrn_chemical, name_cropgroup.y) %>%
+  mutate(`dosegroup_wa_[kg/ha]` = round(sum(`applied_mass_[1000kg/yr]`*`dose_[kg/ha]`)/sum(`applied_mass_[1000kg/yr]`),2), mingroup = min(`dose_[kg/ha]`), maxgroup = max(`dose_[kg/ha]`)) %>%
+  group_by(name_region,name_country, name_ai, casrn_chemical, name_crop_earthstat, name_cropgroup.y, sum, sumall, `dosegroup_wa_[kg/ha]`) %>%
+  summarize(`dose_wa_[kg/ha]` = round(sum(`applied_mass_[1000kg/yr]`*`dose_[kg/ha]`)/sum(`applied_mass_[1000kg/yr]`),2), min = min(`dose_[kg/ha]`), max = max(`dose_[kg/ha]`), count = n()) %>%
+  mutate(ratio = max(`dosegroup_wa_[kg/ha]`/`dose_wa_[kg/ha]`, `dose_wa_[kg/ha]`/`dosegroup_wa_[kg/ha]`)) %>%
+  filter(`dosegroup_wa_[kg/ha]` != 0) %>%
+  filter(`dose_wa_[kg/ha]` != 0) %>%
+  mutate(factor = case_when(ratio >= 1 && ratio <= 1.3 ~ "1-1.3",
+                            ratio > 1.3 && ratio <= 3 ~ "1.3-3",
+                            ratio >3 && ratio <=6 ~ "3-6",
+                            TRUE ~ ">6"))
+
+n_distinct(dose_wa$name_ai)
+
+dose_wa_global <- dose_wa %>%
+  group_by(name_ai, casrn_chemical, name_cropgroup.y) %>%
+  mutate(`dosegroup_global_wa_[kg/ha]` = round(sum(sum *`dosegroup_wa_[kg/ha]`)/sum(sum),2)) %>%
+  group_by(name_ai, casrn_chemical, name_crop_earthstat, name_cropgroup.y, `dosegroup_global_wa_[kg/ha]`) %>%
+  filter(!`dose_wa_[kg/ha]` %in% boxplot.stats(`dose_wa_[kg/ha]`)$out) %>%
+  summarize(`dose_global_wa_[kg/ha]` = round(sum(sum *`dose_wa_[kg/ha]`)/sum(sum),2), count = n()) %>%
+  mutate(ratio = max(`dosegroup_global_wa_[kg/ha]`/`dose_global_wa_[kg/ha]`, `dose_global_wa_[kg/ha]`/`dosegroup_global_wa_[kg/ha]`)) %>%
+  filter(`dosegroup_global_wa_[kg/ha]` != 0) %>%
+  filter(`dose_global_wa_[kg/ha]` != 0) %>%
+  mutate(factor = case_when(ratio >= 1 && ratio <= 1.3 ~ "1-1.3",
+                            ratio > 1.3 && ratio <= 3 ~ "1.3-3",
+                            ratio >3 && ratio <=6 ~ "3-6",
+                            TRUE ~ ">6"))
+```
+
+
+
+```{r}
+dose_wa_global2 <- dose_wa %>%
+  #group_by(name_crop_earthstat, name_ai) %>%
+  #filter(!`dose_[kg/ha]` %in% boxplot.stats(`dose_[kg/ha]`)$out) %>%
+  group_by(name_ai, casrn_chemical, name_cropgroup.y) %>%
+  mutate(mediangroup = median(`dosegroup_wa_[kg/ha]`)) %>%
+  ungroup() %>%
+  group_by(name_ai, casrn_chemical, name_crop_earthstat, name_cropgroup.y, mediangroup, sumall) %>%
+  summarize(median = median(`dose_wa_[kg/ha]`), count = n()) %>%
+  mutate(ratio = max(median/mediangroup, mediangroup/median)) %>%
+  filter(mediangroup!=0) %>%
+  filter(median !=0) %>%
+  mutate(factor = case_when(ratio >= 1 && ratio <= 1.3 ~ "1-1.3",
+                            ratio > 1.3 && ratio <= 3 ~ "1.3-3",
+                            ratio >3 && ratio <=6 ~ "3-6",
+                            TRUE ~ ">6"))
+```
+
+
+#crop classification yy
+```{r}
+n_distinct(dose_wa_yy$name_crop_spam)
+dose_wa_yy <- input_bayer_2018_c %>%
+  group_by(name_ai) %>%
+  filter(sum(`applied_mass_[1000kg/yr]`) > 1500) %>%
+  group_by(name_ai, name_crop_spam) %>%
+  mutate(sumall = sum(`applied_mass_[1000kg/yr]`)) %>%
+  group_by(name_ai, name_crop_spam, name_country) %>%
+  mutate(sum = sum(`applied_mass_[1000kg/yr]`)) %>%
+  group_by(name_region, name_country, name_ai, casrn_chemical, name_cropgroup.y) %>%
+  mutate(`dosegroup_wa_[kg/ha]` = round(sum(`applied_mass_[1000kg/yr]`*`dose_[kg/ha]`)/sum(`applied_mass_[1000kg/yr]`),2), mingroup = min(`dose_[kg/ha]`), maxgroup = max(`dose_[kg/ha]`)) %>%
+  group_by(name_region,name_country, name_ai, casrn_chemical, name_crop_spam, name_cropgroup.y, sum, sumall, `dosegroup_wa_[kg/ha]`) %>%
+  summarize(`dose_wa_[kg/ha]` = round(sum(`applied_mass_[1000kg/yr]`*`dose_[kg/ha]`)/sum(`applied_mass_[1000kg/yr]`),2), min = min(`dose_[kg/ha]`), max = max(`dose_[kg/ha]`), count = n()) %>%
+  mutate(ratio = max(`dosegroup_wa_[kg/ha]`/`dose_wa_[kg/ha]`, `dose_wa_[kg/ha]`/`dosegroup_wa_[kg/ha]`)) %>%
+  filter(`dosegroup_wa_[kg/ha]` != 0) %>%
+  filter(`dose_wa_[kg/ha]` != 0) %>%
+  mutate(factor = case_when(ratio >= 1 && ratio <= 1.3 ~ "1-1.3",
+                            ratio > 1.3 && ratio <= 3 ~ "1.3-3",
+                            ratio >3 && ratio <=6 ~ "3-6",
+                            TRUE ~ ">6"))
+
+n_distinct(dose_wa$name_ai)
+
+dose_wa_global_yy <- dose_wa_yy %>%
+  group_by(name_ai, casrn_chemical, name_cropgroup.y) %>%
+  mutate(`dosegroup_global_wa_[kg/ha]` = round(sum(sum *`dosegroup_wa_[kg/ha]`)/sum(sum),2)) %>%
+  group_by(name_ai, casrn_chemical, name_crop_spam, name_cropgroup.y, `dosegroup_global_wa_[kg/ha]`) %>%
+  filter(!`dose_wa_[kg/ha]` %in% boxplot.stats(`dose_wa_[kg/ha]`)$out) %>%
+  summarize(`dose_global_wa_[kg/ha]` = round(sum(sum *`dose_wa_[kg/ha]`)/sum(sum),2), count = n()) %>%
+  mutate(ratio = max(`dosegroup_global_wa_[kg/ha]`/`dose_global_wa_[kg/ha]`, `dose_global_wa_[kg/ha]`/`dosegroup_global_wa_[kg/ha]`)) %>%
+  filter(`dosegroup_global_wa_[kg/ha]` != 0) %>%
+  filter(`dose_global_wa_[kg/ha]` != 0) %>%
+  mutate(factor = case_when(ratio >= 1 && ratio <= 1.3 ~ "1-1.3",
+                            ratio > 1.3 && ratio <= 3 ~ "1.3-3",
+                            ratio >3 && ratio <=6 ~ "3-6",
+                            TRUE ~ ">6"))
+```
+
+```{r}
+dose_wa_yy2019 <- input2019_cas %>%
+  group_by(name_ai) %>%
+  filter(sum(`applied_mass_kkg`) > 1500) %>%
+  group_by(name_ai, name_crop_earthstat) %>%
+  mutate(sumall = sum(`applied_mass_kkg`)) %>%
+  group_by(name_ai, name_crop_earthstat, name_country) %>%
+  mutate(sum = sum(`applied_mass_kkg`)) %>%
+  group_by(name_region, name_country, name_ai, casrn_chemical, name_cropgroup) %>%
+  mutate(`dosegroup_wa_[kg/ha]` = round(sum(`applied_mass_kkg`*`dose_kgperha`)/sum(`applied_mass_kkg`),2), mingroup = min(`dose_kgperha`), maxgroup = max(`dose_kgperha`)) %>%
+  group_by(name_region,name_country, name_ai, casrn_chemical, name_crop_earthstat,name_cropgroup, sum, sumall, `dosegroup_wa_[kg/ha]`) %>%
+  summarize(`dose_wa_[kg/ha]` = round(sum(`applied_mass_kkg`*`dose_kgperha`)/sum(`applied_mass_kkg`),2), min = min(`dose_kgperha`), max = max(`dose_kgperha`), count = n()) %>%
+  mutate(ratio = max(`dosegroup_wa_[kg/ha]`/`dose_wa_[kg/ha]`, `dose_wa_[kg/ha]`/`dosegroup_wa_[kg/ha]`)) %>%
+  filter(`dosegroup_wa_[kg/ha]` != 0) %>%
+  filter(`dose_wa_[kg/ha]` != 0) %>%
+  mutate(factor = case_when(ratio >= 1 && ratio <= 1.3 ~ "1-1.3",
+                            ratio > 1.3 && ratio <= 3 ~ "1.3-3",
+                            ratio >3 && ratio <=6 ~ "3-6",
+                            TRUE ~ ">6"))
+
+dose_wa_yy2020 <- input2020_cas %>%
+  group_by(name_ai) %>%
+  filter(sum(`applied_mass_kkg`) > 1500) %>%
+  group_by(name_ai, name_crop_earthstat) %>%
+  mutate(sumall = sum(`applied_mass_kkg`)) %>%
+  group_by(name_ai, name_crop_earthstat, name_country) %>%
+  mutate(sum = sum(`applied_mass_kkg`)) %>%
+  group_by(name_region, name_country, name_ai, casrn_chemical, name_cropgroup) %>%
+  mutate(`dosegroup_wa_[kg/ha]` = round(sum(`applied_mass_kkg`*`dose_kgperha`)/sum(`applied_mass_kkg`),2), mingroup = min(`dose_kgperha`), maxgroup = max(`dose_kgperha`)) %>%
+  group_by(name_region,name_country, name_ai, casrn_chemical, name_crop_earthstat,name_cropgroup, sum, sumall, `dosegroup_wa_[kg/ha]`) %>%
+  summarize(`dose_wa_[kg/ha]` = round(sum(`applied_mass_kkg`*`dose_kgperha`)/sum(`applied_mass_kkg`),2), min = min(`dose_kgperha`), max = max(`dose_kgperha`), count = n()) %>%
+  mutate(ratio = max(`dosegroup_wa_[kg/ha]`/`dose_wa_[kg/ha]`, `dose_wa_[kg/ha]`/`dosegroup_wa_[kg/ha]`)) %>%
+  filter(`dosegroup_wa_[kg/ha]` != 0) %>%
+  filter(`dose_wa_[kg/ha]` != 0) %>%
+  mutate(factor = case_when(ratio >= 1 && ratio <= 1.3 ~ "1-1.3",
+                            ratio > 1.3 && ratio <= 3 ~ "1.3-3",
+                            ratio >3 && ratio <=6 ~ "3-6",
+                            TRUE ~ ">6"))
+
+dose_wa_1920 <- dose_wa_yy2019 %>%
+  full_join(dose_wa_yy2020, by = c("name_country" = "name_country", "name_ai" = "name_ai", "casrn_chemical" = "casrn_chemical", "name_crop_earthstat" = "name_crop_earthstat")) %>%
+  mutate(factors = `dose_wa_[kg/ha].y`/`dose_wa_[kg/ha].x`) %>%
+  mutate(factorrange = case_when(factors < 2 & factors > 0.5  ~"0.25-4",
+                                 is.na(factors) ~"no",
+                                 TRUE ~"others"))
+
+```
+
+
+```{r}
+dose_wa_global2_yy <- dose_wa_yy %>%
+  #group_by(name_crop_earthstat, name_ai) %>%
+  #filter(!`dose_[kg/ha]` %in% boxplot.stats(`dose_[kg/ha]`)$out) %>%
+  group_by(name_ai, casrn_chemical, name_cropgroup.y) %>%
+  mutate(mediangroup = median(`dosegroup_wa_[kg/ha]`)) %>%
+  ungroup() %>%
+  group_by(name_ai, casrn_chemical, name_crop_spam, name_cropgroup.y, mediangroup, sumall) %>%
+  summarize(median = median(`dose_wa_[kg/ha]`), count = n()) %>%
+  mutate(ratio = max(median/mediangroup, mediangroup/median)) %>%
+  filter(mediangroup!=0) %>%
+  filter(median !=0) %>%
+  mutate(factor = case_when(ratio >= 1 && ratio <= 1.3 ~ "1-1.3",
+                            ratio > 1.3 && ratio <= 3 ~ "1.3-3",
+                            ratio >3 && ratio <=6 ~ "3-6",
+                            TRUE ~ ">6"))
+
+
+```
+
+
+#crop to crop classification yy
+```{r}
+dose_wa_yyc <- input_bayer_2018_c %>%
+  group_by(name_ai) %>%
+  filter(sum(`applied_mass_[1000kg/yr]`) > 1500) %>%
+  group_by(name_ai, name_crop_earthstat) %>%
+  mutate(sumall = sum(`applied_mass_[1000kg/yr]`)) %>%
+  group_by(name_ai, name_crop_spam, name_country, name_cropgroup.y) %>%
+  mutate(sum = sum(`applied_mass_[1000kg/yr]`)) %>%
+  group_by(name_region, name_country, name_ai, casrn_chemical, name_crop_spam, name_cropgroup.y) %>%
+  mutate(`dosegroup_wa_[kg/ha]` = round(sum(`applied_mass_[1000kg/yr]`*`dose_[kg/ha]`)/sum(`applied_mass_[1000kg/yr]`),2), mingroup = min(`dose_[kg/ha]`), maxgroup = max(`dose_[kg/ha]`)) %>%
+  group_by(name_region,name_country, name_ai, casrn_chemical, name_crop_earthstat, name_crop_spam, sum, sumall, `dosegroup_wa_[kg/ha]`, name_cropgroup.y) %>%
+  summarize(`dose_wa_[kg/ha]` = round(sum(`applied_mass_[1000kg/yr]`*`dose_[kg/ha]`)/sum(`applied_mass_[1000kg/yr]`),2), min = min(`dose_[kg/ha]`), max = max(`dose_[kg/ha]`), count = n()) %>%
+  mutate(ratio = max(`dosegroup_wa_[kg/ha]`/`dose_wa_[kg/ha]`, `dose_wa_[kg/ha]`/`dosegroup_wa_[kg/ha]`)) %>%
+  filter(`dosegroup_wa_[kg/ha]` != 0) %>%
+  filter(`dose_wa_[kg/ha]` != 0) %>%
+  mutate(factor = case_when(ratio >= 1 && ratio <= 1.3 ~ "1-2",
+                            ratio > 1.3 && ratio <= 3 ~ "2-4",
+                            ratio >3 && ratio <=6 ~ "4-8",
+                            TRUE ~ ">8"))
+
+n_distinct(dose_wa_yyc$name_ai)
+
+dose_wa_global_yy <- dose_wa_yy %>%
+  group_by(name_ai, casrn_chemical, name_cropgroup.y) %>%
+  mutate(`dosegroup_global_wa_[kg/ha]` = round(sum(sum *`dosegroup_wa_[kg/ha]`)/sum(sum),2)) %>%
+  group_by(name_ai, casrn_chemical, name_crop_spam, name_cropgroup.y, `dosegroup_global_wa_[kg/ha]`) %>%
+  filter(!`dose_wa_[kg/ha]` %in% boxplot.stats(`dose_wa_[kg/ha]`)$out) %>%
+  summarize(`dose_global_wa_[kg/ha]` = round(sum(sum *`dose_wa_[kg/ha]`)/sum(sum),2), count = n()) %>%
+  mutate(ratio = max(`dosegroup_global_wa_[kg/ha]`/`dose_global_wa_[kg/ha]`, `dose_global_wa_[kg/ha]`/`dosegroup_global_wa_[kg/ha]`)) %>%
+  filter(`dosegroup_global_wa_[kg/ha]` != 0) %>%
+  filter(`dose_global_wa_[kg/ha]` != 0) %>%
+  mutate(factor = case_when(ratio >= 1 && ratio <= 1.3 ~ "1-1.3",
+                            ratio > 1.3 && ratio <= 3 ~ "1.3-3",
+                            ratio >3 && ratio <=6 ~ "3-6",
+                            TRUE ~ ">6"))
+```
+
+
+
+```{r}
+dose_wa_global2_yyc <- dose_wa_yyc %>%
+  group_by(name_ai) %>%
+  #filter(!`dose_[kg/ha]` %in% boxplot.stats(`dose_[kg/ha]`)$out) %>%
+  #filter(sum(sumall) >10000) %>%
+  group_by(name_ai, casrn_chemical, name_crop_spam, name_cropgroup.y) %>%
+  mutate(mediangroup = median(`dosegroup_wa_[kg/ha]`)) %>%
+  ungroup() %>%
+  group_by(name_ai, casrn_chemical, name_crop_earthstat, name_crop_spam, mediangroup, sumall, name_cropgroup.y) %>%
+  summarize(median = median(`dose_wa_[kg/ha]`), count = n()) %>%
+  mutate(ratio = max(median/mediangroup, mediangroup/median)) %>%
+  filter(mediangroup!=0) %>%
+  filter(median !=0) %>%
+  mutate(factor = case_when(ratio >= 1 && ratio <= 1.3 ~ "1-2",
+                            ratio > 1.3 && ratio <= 3 ~ "2-4",
+                            ratio >3 && ratio <=6 ~ "4-8",
+                            TRUE ~ ">8")) %>%
+  group_by(name_ai) %>%
+  filter(sum(sumall) > 10000)
+```
+
+```{r}
+dose_wa_global2_group <- dose_wa_global2 %>%
+  left_join(spam_id) %>%
+  
+```
+
+
+```{r}
+dose_wa_australia <- dose_wa %>%
+  filter(name_country == "Australia")
+
+dose_wa_us <- dose_wa %>%
+  filter(name_country == "United States")
+
+p <- ggplot() +
+  geom_point(data = dose_wa_global2_yyc, aes(x = name_crop_earthstat, y = casrn_chemical, color = factor, size = sumall)) +
+  scale_color_manual(values = c("1-2" = "white", "2-4" = "orange", "4-8" = "purple", ">8" = "darkblue")) +
+  #scale_size(trans = "log2", range = c(0.5,4)) +
+  #scale_size(breaks = c(1, 5, 10, 20)) +
+  #scale_color_gradient2(low = "darkred", mid = "white", midpoint = log10(4), high = "blue", name = "ratiocropcropclass", trans = "log10", breaks = c(1,4,100)) +
+  #geom_raster() + 
+  #geom_point(data = dose_wa_p, aes(x = name_crop_earthstat, y = casrn_chemical, fill = count, shape = shp), shape = 21, size = 2) +
+  #scale_fill_gradient(low = "gray", high = "blue", name= "count") +
+  #theme_tufte(base_family="Helvetica") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + # lables vertical
+        #strip.text.y = element_blank()) +  #remove facet bar on y 
+  #scale_fill_gradient(low = "lightgrey", high = "darkred") +
+  ggtitle("test table") +
+  facet_nested(~name_cropgroup.y + name_crop_spam, scales = "free", space="free")
+p
+ggsave("cropcropclassbox_wa_global3sumsample.png",width = 50, height = 25, units = "cm")
+
+
+dose_wa_trifloxystrobin <- dose_wa_global2 %>%
+  ungroup() %>%
+  filter(name_ai == "Trifloxystrobin") %>%
+  select(c("name_crop_earthstat", "median"))
+
+
+
+dose_wa_country <- dose_wa %>%
+  group_by(name_crop_earthstat, name_ai) %>%
+  filter(!`dose_wa_[kg/ha]` %in% boxplot.stats(`dose_wa_[kg/ha]`)$out) %>%
+  group_by(name_ai, casrn_chemical, name_cropgroup.y) %>%
+  mutate(mingroup = min(`dose_wa_[kg/ha]`), maxgroup = max(`dose_wa_[kg/ha]`), mediangroup = median(`dose_wa_[kg/ha]`), quants25group = quantile(`dose_wa_[kg/ha]`, 0.25), quants75group = quantile(`dose_wa_[kg/ha]`, 0.75)) %>%
+  group_by(name_ai, casrn_chemical, name_crop_earthstat, name_cropgroup.y, mingroup, maxgroup, mediangroup, quants25group, quants75group, sum) %>%
+  summarize(min = min(`dose_wa_[kg/ha]`), max = max(`dose_wa_[kg/ha]`), median = median(`dose_wa_[kg/ha]`), quants25 = quantile(`dose_wa_[kg/ha]`, 0.25), quants75 = quantile(`dose_wa_[kg/ha]`, 0.75), count = n()) %>%
+  mutate(ratiocropcropclass = max(median/mediangroup, mediangroup/median), ratiobox = max(quants75/median, quants25/median)) %>%
+  filter(mediangroup!=0) %>%
+  filter(median !=0)
+
+p <-ggplot() +
+  geom_point(data = dose_wa_country, aes(x = name_crop_earthstat, y = casrn_chemical, color = ratiocropcropclass, size = count)) +
+  scale_size(breaks = c(1, 5, 10, 20)) +
+  scale_color_gradient2(low = "darkred", mid = "white", midpoint = log10(4), high = "blue", name = "ratiocropcropclass", trans = "log10", breaks = c(1,4,100)) +
+  #geom_raster() + 
+  #geom_point(data = dose_wa_p, aes(x = name_crop_earthstat, y = casrn_chemical, fill = count, shape = shp), shape = 21, size = 2) +
+  #scale_fill_gradient(low = "gray", high = "blue", name= "count") +
+  #theme_tufte(base_family="Helvetica") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + # lables vertical
+        #strip.text.y = element_blank()) +  #remove facet bar on y 
+  #scale_fill_gradient(low = "lightgrey", high = "darkred") +
+  ggtitle("test table") +
+  facet_grid(cols = vars(name_cropgroup.y), scales = "free", space="free")
+p
+ggsave("cropcropclass_wa.png",width = 50, height = 50, units = "cm")
+
+
+p <-ggplot() +
+  geom_point(data = dose_wa_country, aes(x = name_crop_earthstat, y = casrn_chemical, color = ratiocropcropclass, size = sum)) +
+  scale_size(breaks = c(10, 1000, 10000, 100000)) +
+  scale_color_gradient2(low = "darkred", mid = "white", midpoint = log10(4), high = "blue", name = "ratiocropcropclass", trans = "log10", breaks = c(1,4,100)) +
+  #geom_raster() + 
+  #geom_point(data = dose_wa_p, aes(x = name_crop_earthstat, y = casrn_chemical, fill = count, shape = shp), shape = 21, size = 2) +
+  #scale_fill_gradient(low = "gray", high = "blue", name= "count") +
+  #theme_tufte(base_family="Helvetica") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + # lables vertical
+        #strip.text.y = element_blank()) +  #remove facet bar on y 
+  #scale_fill_gradient(low = "lightgrey", high = "darkred") +
+  ggtitle("test table") +
+  facet_grid(cols = vars(name_cropgroup.y), scales = "free", space="free")
+p
+ggsave("cropcropclass_wa_summass.png",width = 50, height = 50, units = "cm")
+
+p <-ggplot() +
+  geom_point(data = dose_wa_country, aes(x = name_crop_earthstat, y = casrn_chemical, color = ratiobox, size = count)) +
+  scale_size(breaks = c(10, 1000, 10000, 50000)) +
+  scale_color_gradient2(low = "darkred", mid = "white", midpoint = log10(4), high = "blue", name = "ratiocropcropclass", trans = "log10", breaks = c(1,4,100)) +
+  #geom_raster() + 
+  #geom_point(data = dose_wa_p, aes(x = name_crop_earthstat, y = casrn_chemical, fill = count, shape = shp), shape = 21, size = 2) +
+  #scale_fill_gradient(low = "gray", high = "blue", name= "count") +
+  #theme_tufte(base_family="Helvetica") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + # lables vertical
+        #strip.text.y = element_blank()) +  #remove facet bar on y 
+  #scale_fill_gradient(low = "lightgrey", high = "darkred") +
+  ggtitle("test table") +
+  facet_grid(cols = vars(name_cropgroup.y), scales = "free", space="free")
+p
+ggsave("cropcropclassbox_wa_summass.png",width = 50, height = 50, units = "cm")
+```
+
+
+# dose difference for each crop-ai combination, including crop dose median/cropclass dose median, 25% or 75% quantile/median
+```{r}
+
+
+dose_wa_p <- input_bayer_2018_c %>%
+  group_by(name_ai) %>%
+  filter(sum(`applied_mass_[1000kg/yr]`) > 1500) %>%
+  group_by(name_crop_earthstat, name_ai) %>%
+  filter(!`dose_[kg/ha]` %in% boxplot.stats(`dose_[kg/ha]`)$out) %>%
+  group_by(name_ai, casrn_chemical, name_cropgroup.y) %>%
+  mutate(mingroup = min(`dose_[kg/ha]`), maxgroup = max(`dose_[kg/ha]`), mediangroup = median(`dose_[kg/ha]`), quants25group = quantile(`dose_[kg/ha]`, 0.25), quants75group = quantile(`dose_[kg/ha]`, 0.75)) %>%
+  group_by(name_ai, casrn_chemical, name_crop_earthstat, name_cropgroup.y, mingroup, maxgroup, mediangroup, quants25group, quants75group) %>%
+  summarize(`dose_wa_[kg/ha]` = round(sum(`applied_mass_[1000kg/yr]`*`dose_[kg/ha]`)/sum(`applied_mass_[1000kg/yr]`),2), min = min(`dose_[kg/ha]`), max = max(`dose_[kg/ha]`), median = median(`dose_[kg/ha]`), quants25 = quantile(`dose_[kg/ha]`, 0.25), quants75 = quantile(`dose_[kg/ha]`, 0.75), count = n(), sum = sum(`applied_mass_[1000kg/yr]`)) %>%
+  mutate(ratiocropcropclass = max(median/mediangroup, mediangroup/median), ratiobox = max(quants75/median, median/quants25)) %>%
+  filter(mediangroup!=0) %>%
+  filter(median !=0) %>%
+  filter(quants25 != 0)
+
+n_distinct(dose_wa_p$name_ai)
+p <-ggplot() +
+  geom_point(data = dose_wa_p, aes(x = name_crop_earthstat, y = casrn_chemical, color = ratiocropcropclass, size = count)) +
+  scale_size(breaks = c(10, 100, 2000, 4000)) +
+  scale_color_gradient2(low = "darkred", mid = "white", midpoint = log10(4), high = "blue", name = "ratiocropcropclass", trans = "log10", breaks = c(1,4,100)) +
+  #geom_raster() + 
+  #geom_point(data = dose_wa_p, aes(x = name_crop_earthstat, y = casrn_chemical, fill = count, shape = shp), shape = 21, size = 2) +
+  #scale_fill_gradient(low = "gray", high = "blue", name= "count") +
+  #theme_tufte(base_family="Helvetica") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + # lables vertical
+        #strip.text.y = element_blank()) +  #remove facet bar on y 
+  #scale_fill_gradient(low = "lightgrey", high = "darkred") +
+  ggtitle("test table") +
+  facet_grid(cols = vars(name_cropgroup.y), scales = "free", space="free")
+p
+ggsave("cropcropclass.png",width = 50, height = 50, units = "cm")
+
+
+p <-ggplot() +
+  geom_point(data = dose_wa_p, aes(x = name_crop_earthstat, y = casrn_chemical, color = ratiocropcropclass, size = sum)) +
+  scale_size(breaks = c(10, 1000, 10000, 100000)) +
+  scale_color_gradient2(low = "darkred", mid = "white", midpoint = log10(4), high = "blue", name = "ratiocropcropclass", trans = "log10", breaks = c(1,4,100)) +
+  #geom_raster() + 
+  #geom_point(data = dose_wa_p, aes(x = name_crop_earthstat, y = casrn_chemical, fill = count, shape = shp), shape = 21, size = 2) +
+  #scale_fill_gradient(low = "gray", high = "blue", name= "count") +
+  #theme_tufte(base_family="Helvetica") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + # lables vertical
+        #strip.text.y = element_blank()) +  #remove facet bar on y 
+  #scale_fill_gradient(low = "lightgrey", high = "darkred") +
+  ggtitle("test table") +
+  facet_grid(cols = vars(name_cropgroup.y), scales = "free", space="free")
+p
+ggsave("cropcropclass_summass.png",width = 50, height = 50, units = "cm")
+
+p <-ggplot() +
+  geom_point(data = dose_wa_p, aes(x = name_crop_earthstat, y = casrn_chemical, color = ratiobox, size = sum)) +
+  scale_size(breaks = c(10, 1000, 10000, 50000)) +
+  scale_color_gradient2(low = "darkred", mid = "white", midpoint = log10(4), high = "blue", name = "ratiocropcropclass", trans = "log10", breaks = c(1,4,100)) +
+  #geom_raster() + 
+  #geom_point(data = dose_wa_p, aes(x = name_crop_earthstat, y = casrn_chemical, fill = count, shape = shp), shape = 21, size = 2) +
+  #scale_fill_gradient(low = "gray", high = "blue", name= "count") +
+  #theme_tufte(base_family="Helvetica") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + # lables vertical
+        #strip.text.y = element_blank()) +  #remove facet bar on y 
+  #scale_fill_gradient(low = "lightgrey", high = "darkred") +
+  ggtitle("test table") +
+  facet_grid(cols = vars(name_cropgroup.y), scales = "free", space="free")
+p
+ggsave("cropcropclassbox_summass.png",width = 50, height = 50, units = "cm")
+
+sum(dose_wa_p$count)
+```
+
+```{r}
+
+
+dose_wa_p <- input_bayer_2018_c %>%
+  group_by(name_crop_earthstat, name_ai) %>%
+  filter(!`dose_[kg/ha]` %in% boxplot.stats(`dose_[kg/ha]`)$out) %>%
+  group_by(name_ai, casrn_chemical, name_cropgroup.y) %>%
+  mutate(mingroup = min(`dose_[kg/ha]`), maxgroup = max(`dose_[kg/ha]`), mediangroup = median(`dose_[kg/ha]`), quants25group = quantile(`dose_[kg/ha]`, 0.25), quants75group = quantile(`dose_[kg/ha]`, 0.75)) %>%
+  group_by(name_ai, casrn_chemical, name_crop_earthstat, name_cropgroup.y, mingroup, maxgroup, mediangroup, quants25group, quants75group) %>%
+  summarize(`dose_wa_[kg/ha]` = round(sum(`applied_mass_[1000kg/yr]`*`dose_[kg/ha]`)/sum(`applied_mass_[1000kg/yr]`),2), min = min(`dose_[kg/ha]`), max = max(`dose_[kg/ha]`), median = median(`dose_[kg/ha]`), quants25 = quantile(`dose_[kg/ha]`, 0.25), quants75 = quantile(`dose_[kg/ha]`, 0.75), count = n()) %>%
+  mutate(ratiocropcropclass = median/mediangroup, ratiobox = max(quants75/median, quants25/median)) %>%
+  filter(count > 200)
+
+n_distinct(dose_wa_p$name_ai)
+p <-ggplot() +
+  geom_point(data = dose_wa_p, aes(x = name_crop_earthstat, y = casrn_chemical, color = ratiocropcropclass, size = count)) +
+  scale_color_gradient(low = "lightgrey", high = "darkred", name = "ratiocropcropclass") +
+  #geom_raster() + 
+  #geom_point(data = dose_wa_p, aes(x = name_crop_earthstat, y = casrn_chemical, fill = count, shape = shp), shape = 21, size = 2) +
+  #scale_fill_gradient(low = "gray", high = "blue", name= "count") +
+  #theme_tufte(base_family="Helvetica") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + # lables vertical
+        #strip.text.y = element_blank()) +  #remove facet bar on y 
+  #scale_fill_gradient(low = "lightgrey", high = "darkred") +
+  ggtitle("test table") +
+  facet_grid(cols = vars(name_cropgroup.y), scales = "free", space="free")
+p
+ggsave("cropcropclass200size.png",width = 50, height = 50, units = "cm")
+
+
+sum(dose_wa_p$count)
+```
+
+
+
+```{r}
+dose_wa_p_rm <- input_bayer_2018_c %>%
+  group_by(name_ai, casrn_chemical, name_crop_earthstat, name_cropgroup.y) %>%
+  summarize(`dose_wa_[kg/ha]` = round(sum(`applied_mass_[1000kg/yr]`*`dose_[kg/ha]`)/sum(`applied_mass_[1000kg/yr]`),2), min = min(`dose_[kg/ha]`), max = max(`dose_[kg/ha]`), quants25 = quantile(`dose_[kg/ha]`, c(0.25, 0.5, 0.75)), q = c(0.25, 0.5, 0.75)) %>%
+  ungroup() %>%
+  group_by(name_crop_earthstat) %>%
+  filter(!`dose_wa_[kg/ha]` %in% boxplot.stats(`dose_wa_[kg/ha]`)$out) %>%
+  ungroup
+```
+
+```{r}
+dose_wa_groupp_rm <- input_bayer_2018_c %>%
+  group_by(name_ai, casrn_chemical, name_cropgroup.y) %>%
+  summarize(`doseg_wa_[kg/ha]` = round(sum(`applied_mass_[1000kg/yr]`*`dose_[kg/ha]`)/sum(`applied_mass_[1000kg/yr]`),2), ming = min(`dose_[kg/ha]`), maxg = max(`dose_[kg/ha]`), quants25g = quantile(`dose_[kg/ha]`, c(0.25, 0.5, 0.75)), q = c(0.25, 0.5, 0.75)) %>%
+  ungroup() %>%
+  group_by(name_cropgroup.y) %>%
+  filter(!`doseg_wa_[kg/ha]` %in% boxplot.stats(`doseg_wa_[kg/ha]`)$out) %>%
+  ungroup
+```
+
+```{r}
+dose_wa_pg <- dose_wa_p %>%
+  left_join(dose_wa_groupp, by = c("name_ai", "name_cropgroup.y", "q")) 
+
+dose_wa_pgn <- dose_wa_pg %>%
+  filter(q != 0.5) %>%
+  mutate(min_t = case_when((q == 0.25 & quants25 >= quants25g) ~ "T",
+                           (q == 0.25 & quants25 < quants25g) ~ "F",
+                           (q == 0.75 & quants25 > quants25g) ~ "F",
+                           (q == 0.75 & quants25 <= quants25g) ~ "T")) %>%
+  filter(min_t == "F")
+```
+
+
+
+```{r}
+dose_wa_pg_rm <- dose_wa_p_rm %>%
+  left_join(dose_wa_groupp_rm, by = c("name_ai", "name_cropgroup.y", "q")) 
+
+dose_wa_pgn_rm <- dose_wa_pg_rm %>%
+  filter(q != 0.5) %>%
+  mutate(min_t = case_when((q == 0.25 & quants25 >= quants25g) ~ "T",
+                           (q == 0.25 & quants25 < quants25g) ~ "F",
+                           (q == 0.75 & quants25 > quants25g) ~ "F",
+                           (q == 0.75 & quants25 <= quants25g) ~ "T")) #%>%
+  #filter(min_t == "F")
+
+dose_wa_pgn_rm_uni <- dose_wa_pg_rm %>%
+  distinct(name_ai, name_crop_earthstat, casrn_chemical.x, name_cropgroup.y)
+dose_wa_pgn_rm_uni %>%
+  ggplot() +
+  geom_bar(aes(x = name_cropgroup.y))
+unique(dose_wa_pgn_rm$name_crop_earthstat)
+```
+
+
+
+```{r}
+vec <- dose_wa%>%
+  filter(name_ai == "Glyphosate") %>%
+  filter(name_crop_earthstat != "other") %>%
+  filter(name_crop_earthstat != "pea") %>%
+  filter(name_crop_earthstat != "bean") %>%
+  group_by(name_crop_earthstat, name_cropgroup.y) %>%
+  summarize(m = mean(`dose_wa_[kg/ha]`, na.rm = TRUE)) %>%
+  ungroup() %>%
+  group_by(name_cropgroup.y) %>%
+  arrange(desc(m), .by_group = TRUE) %>%
+  pull(name_crop_earthstat)
+vec
+
+dose_wa %>%
+  filter(name_ai == "Glyphosate") %>%
+  #filter(name_cropgroup.y == "Cereals") %>%
+  ggplot(aes(x = factor(name_crop_earthstat, levels = vec), y = `dose_wa_[kg/ha]`)) +
+  geom_jitter(alpha = 0.3, width = 0.01, aes(color = name_region)) +
+  geom_boxplot(#size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 1,
+               aes(fill = name_cropgroup.y),
+               alpha = 0.7) +
+  
+  theme_minimal() +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          labels = trans_format("log10", math_format(10^.x))) +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  #facet_wrap(~name_cropgroup.y, ncol = 11) +
+  scale_color_brewer(palette="Set2") +
+  scale_fill_brewer(palette = "Set3") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+```{r}
+vec <- input_bayer_2018_c%>%
+  #filter(name_ai == "Glyphosate") %>%
+  filter(name_crop_earthstat != "other") %>%
+  filter(name_crop_earthstat != "pea") %>%
+  filter(name_crop_earthstat != "bean") %>%
+  group_by(name_crop_earthstat, name_cropgroup.y) %>%
+  summarize(m = mean(`dose_[kg/ha]`, na.rm = TRUE)) %>%
+  ungroup() %>%
+  group_by(name_cropgroup.y) %>%
+  arrange(desc(m), .by_group = TRUE) %>%
+  pull(name_crop_earthstat)
+vec
+
+input_bayer_2018_c %>%
+  #filter(name_ai == "Glyphosate") %>%
+  #filter(name_cropgroup.y == "Cereals") %>%
+  ggplot(aes(x = factor(name_crop_earthstat, levels = vec), y = `dose_[kg/ha]`)) +
+  geom_boxplot(#size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 1,
+               aes(fill = name_cropgroup.y),
+               alpha = 0.7) +
+  #geom_jitter(alpha = 0.3, width = 0.01, aes(color = name_region)) +
+  theme_minimal() +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          labels = trans_format("log10", math_format(10^.x))) +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  #facet_wrap(~name_cropgroup.y, ncol = 11) +
+  scale_color_brewer(palette="Paired") +
+  scale_fill_brewer(palette = "Set3") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+```{r}
+input_outliers <- input_bayer_2018_c %>%
+  #filter(name_ai == "Glyphosate") %>%
+  group_by(name_crop_earthstat) %>%
+  filter(`dose_[kg/ha]` %in% boxplot.stats(`dose_[kg/ha]`)$out) %>%
+  ungroup
+```
+
+```{r}
+input_largedose <- input_bayer_2018_c %>%
+  filter(`dose_[kg/ha]` > 100)
+
+input_largedose_g <- input_largedose %>%
+  group_by(name_country, name_crop_earthstat, Product, name_ai, name_indication, name_region) %>%
+  summarize(min = min(`dose_[kg/ha]`), max = max(`dose_[kg/ha]`))
+
+summary(input_largedose_g)
+unique(input_largedose_g$name_ai)
+
+input_largedose_pc <- input_largedose %>%
+  group_by(name_country, name_ai, casrn_chemical, name_indication, Product, Distributor) %>%
+  summarize(min = min(`dose_[kg/ha]`), max = max(`dose_[kg/ha]`))
+
+input_largedose_u <- input_bayer_2018_c %>%
+  group_by(name_country, name_ai, casrn_chemical, name_indication, Product, Distributor) %>%
+  summarize(min = min(`dose_[kg/ha]`), max = max(`dose_[kg/ha]`)) %>%
+  filter(max > 100)
+
+write_csv(input_largedose_pc, "input_largedose_pc.csv")
+write_csv(input_largedose_u, "input_largedose_u.csv")
+```
+
+
+```{r}
+dose_wa_outliers <- dose_wa %>%
+  #filter(name_ai == "Glyphosate") %>%
+  group_by(name_crop_earthstat) %>%
+  filter(`dose_wa_[kg/ha]` %in% boxplot.stats(`dose_wa_[kg/ha]`)$out) %>%
+  ungroup
+```
+
+```{r}
+dose_wa_rm <- dose_wa %>%
+  filter(name_ai == "Glyphosate") %>%
+  group_by(name_crop_earthstat) %>%
+  filter(!`dose_wa_[kg/ha]` %in% boxplot.stats(`dose_wa_[kg/ha]`)$out) %>%
+  ungroup
+```
+
+```{r}
+vec <- dose_wa_rm%>%
+  filter(name_ai == "Glyphosate") %>%
+  filter(name_crop_earthstat != "other") %>%
+  filter(name_crop_earthstat != "pea") %>%
+  filter(name_crop_earthstat != "bean") %>%
+  group_by(name_crop_earthstat, name_cropgroup.y) %>%
+  summarize(m = mean(`dose_wa_[kg/ha]`, na.rm = TRUE)) %>%
+  ungroup() %>%
+  group_by(name_cropgroup.y) %>%
+  arrange(desc(m), .by_group = TRUE) %>%
+  pull(name_crop_earthstat)
+vec
+
+dose_wa_rm %>%
+  filter(name_ai == "Glyphosate") %>%
+  #filter(name_cropgroup.y == "Cereals") %>%
+  ggplot(aes(x = factor(name_crop_earthstat, levels = vec), y = `dose_wa_[kg/ha]`)) +
+  geom_jitter(alpha = 0.3, width = 0.01, aes(color = name_region)) +
+  geom_boxplot(#size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 1,
+               aes(fill = name_cropgroup.y),
+               alpha = 0.7) +
+  
+  theme_minimal() +
+  scale_y_continuous(trans= scales::pseudo_log_trans(sigma = 10^-2, base = 10), breaks = c(1, 1.5, 2, 5, 10))+
+  #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          #labels = trans_format("log10", math_format(10^.x))) +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  #facet_wrap(~name_cropgroup.y, ncol = 11) +
+  scale_color_brewer(palette="RdBu") +
+  scale_fill_brewer(palette = "Set3") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+```{r}
+dose_wa_rm %>%
+  filter(name_ai == "Glyphosate") %>%
+  ggplot(aes(x = name_cropgroup.y, y = `dose_wa_[kg/ha]`)) +
+  geom_boxplot(size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 3) +
+  geom_jitter(alpha = 0.5, width = 0.2, aes(color = name_region)) +
+  theme_minimal() +
+  #facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired") +
+  coord_flip()
+```
+
+```{r}
+dose_wa_rm %>%
+  filter(name_ai == "Glyphosate") %>%
+  ggplot(aes(x = `dose_wa_[kg/ha]`, fill = name_cropgroup.y)) +
+  geom_histogram(binwidth=.5, alpha=.5, position="identity") +
+  scale_fill_brewer(palette="Paired") +
+  facet_wrap(~ name_cropgroup.y, ncol = 3)
+```
+
+```{r}
+dose_wa_rm_c <- dose_wa %>%
+  filter(name_cropgroup.y == "Cereals") %>%
+  group_by(casrn_chemical) %>%
+  filter(!`dose_wa_[kg/ha]` %in% boxplot.stats(`dose_wa_[kg/ha]`)$out) %>%
+  ungroup
+```
+
+```{r}
+dose_wa_rm_c %>%
+  filter(name_cropgroup.y == "Cereals") %>%
+  head(.,200) %>%
+  ggplot(aes(x = casrn_chemical, y = `dose_wa_[kg/ha]`)) +
+  geom_boxplot(size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 3) +
+  geom_jitter(alpha = 0.5, width = 0.2, aes(color = name_region)) +
+  theme_minimal() +
+  #facet_grid(name_indication ~ name_cropgroup.y, scales = "free") +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  scale_color_brewer(palette="Paired") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+
+```{r}
+input_bayer_2018_c_bbch <- input_bayer_2018_bbch %>%
+  filter(!is.na(`treated_area_[1000ha/yr]`)) %>%
+  filter(`treated_area_[1000ha/yr]` != 0) %>%
+  filter(`applied_mass_[1000kg/yr]` != 0) %>%
+  mutate(`dose_[kg/ha]` = round(`applied_mass_[1000kg/yr]`/`treated_area_[1000ha/yr]`,2)) %>%
+  select(id_bayer, id_scenariobayer, name_country, name_region, name_crop_bayer, name_crop_earthstat, name_crop_FAO, name_cropgroup.x, name_cropgroup.y, casrn_chemical, name_ai, name_cropstage,code_bbch, code_bbch_group, `treated_area_[1000ha/yr]`, name_indication, `applied_mass_[1000kg/yr]`, `dose_[kg/ha]`, Product, Distributor, name_app) 
+
+input_bayer_2018_c_bbchc <- input_bayer_2018_c_bbch %>%
+  filter(code_bbch_group != "99") #%>%
+  mutate(cropstage = case_when(as.numeric(code_bbch) < 10 ~ "Pre",
+                               TRUE ~ "Other")) %>%
+  mutate(app = case_when(name_app == "AERIAL-APPLICATION" ~ "Aerial",
+                         name_app == "HELICOPTER/AIRPLANE" ~ "Aerial",
+                         TRUE ~ "Other"))
+```
+
+```{r}
+#bbch relation to crop, chemical, country combination
+input_bayer_2018_c_cropstage <- input_bayer_2018_c_bbchc %>%
+  group_by(name_crop_earthstat, name_cropgroup.y, name_country, name_ai, code_bbch_group) %>%
+  summarize(count = n(), `dose_wa_[kg/ha]` = round(sum(`applied_mass_[1000kg/yr]`*`dose_[kg/ha]`)/sum(`applied_mass_[1000kg/yr]`),2), min = min(`dose_[kg/ha]`), max = max(`dose_[kg/ha]`))
+```
+
+```{r}
+input_bayer_2018_c_bbchc %>%
+  #filter(name_crop_earthstat == "apple") %>%
+  #filter(name_cropgroup.y == "Fruit") %>%
+  filter(name_ai == "λ-Cyhalothrin") %>%
+  ggplot(aes(x = code_bbch_group), fill = name_cropgroup.y) +
+  geom_histogram(stat = "count") +
+  facet_wrap(~name_cropgroup.y, scales = "free_y")+
+  scale_color_brewer(palette="Paired")
+```
+```{r}
+input_bayer_2018_c_cropstage %>%
+  filter(name_crop_earthstat == "barley") %>%
+  #filter(name_cropgroup.y == "Fruit") %>%
+  filter(name_ai == "Glyphosate") %>%
+  ggplot(aes(x = `dose_wa_[kg/ha]`)) +
+  geom_histogram() +
+  facet_wrap(~ code_bbch)
+```
+
+
+
+```{r}
+dose_wa_bbch <- input_bayer_2018_c_bbchc %>%
+  group_by(name_region,name_country, name_ai, casrn_chemical, name_crop_earthstat, name_cropgroup.y, cropstage) %>%
+  summarize(`dose_wa_[kg/ha]` = round(sum(`applied_mass_[1000kg/yr]`*`dose_[kg/ha]`)/sum(`applied_mass_[1000kg/yr]`),2), min = min(`dose_[kg/ha]`), max = max(`dose_[kg/ha]`))
+```
+
+```{r}
+vec <- dose_wa_bbch%>%
+  filter(name_ai == "Glyphosate") %>%
+  filter(name_crop_earthstat != "other") %>%
+  filter(name_crop_earthstat != "pea") %>%
+  filter(name_crop_earthstat != "bean") %>%
+  group_by(name_crop_earthstat, name_cropgroup.y) %>%
+  summarize(m = mean(`dose_wa_[kg/ha]`, na.rm = TRUE)) %>%
+  ungroup() %>%
+  group_by(name_cropgroup.y) %>%
+  arrange(desc(m), .by_group = TRUE) %>%
+  pull(name_crop_earthstat)
+vec
+
+dose_wa_bbch %>%
+  filter(name_ai == "Glyphosate") %>%
+  #filter(name_cropgroup.y == "Cereals") %>%
+  ggplot(aes(x = factor(name_crop_earthstat, levels = vec), y = `dose_wa_[kg/ha]`)) +
+  #ggplot(aes(x = name_crop_earthstat, y = `dose_wa_[kg/ha]`)) +
+  #geom_jitter(alpha = 0.3, width = 0.01, aes(color = name_region)) +
+  geom_boxplot(#size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 1,
+               aes(fill = cropstage),
+               alpha = 0.7, position = "identity") +
+  
+  theme_minimal() +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          labels = trans_format("log10", math_format(10^.x))) +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  #facet_wrap(~name_cropgroup.y, ncol = 11) +
+  scale_color_brewer(palette="Set2") +
+  scale_fill_brewer(palette = "Set3") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+
+```{r}
+dose_wa_app <- input_bayer_2018_c_bbch %>% 
+  mutate(app = case_when(name_app == "AERIAL-APPLICATION" ~ "Aerial",
+                         name_app == "HELICOPTER/AIRPLANE" ~ "Aerial",
+                         TRUE ~ "Other")) %>%
+  group_by(name_region,name_country, name_ai, casrn_chemical, name_crop_earthstat, name_cropgroup.y, app) %>%
+  summarize(`dose_wa_[kg/ha]` = round(sum(`applied_mass_[1000kg/yr]`*`dose_[kg/ha]`)/sum(`applied_mass_[1000kg/yr]`),2), min = min(`dose_[kg/ha]`), max = max(`dose_[kg/ha]`))
+```
+
+```{r}
+vec <- dose_wa_app%>%
+  filter(name_ai == "Glyphosate") %>%
+  filter(name_crop_earthstat != "other") %>%
+  filter(name_crop_earthstat != "pea") %>%
+  filter(name_crop_earthstat != "bean") %>%
+  group_by(name_crop_earthstat, name_cropgroup.y) %>%
+  summarize(m = mean(`dose_wa_[kg/ha]`, na.rm = TRUE)) %>%
+  ungroup() %>%
+  group_by(name_cropgroup.y) %>%
+  arrange(desc(m), .by_group = TRUE) %>%
+  pull(name_crop_earthstat)
+vec
+
+dose_wa_app %>%
+  filter(name_ai == "Glyphosate") %>%
+  #filter(name_cropgroup.y == "Cereals") %>%
+  ggplot(aes(x = factor(name_crop_earthstat, levels = vec), y = `dose_wa_[kg/ha]`)) +
+  #ggplot(aes(x = name_crop_earthstat, y = `dose_wa_[kg/ha]`)) +
+  #geom_jitter(alpha = 0.3, width = 0.01, aes(color = name_region)) +
+  geom_boxplot(#size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 1,
+               aes(fill = app),
+               alpha = 0.7, position = "identity") +
+  
+  theme_minimal() +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          labels = trans_format("log10", math_format(10^.x))) +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  #facet_wrap(~name_cropgroup.y, ncol = 11) +
+  scale_color_brewer(palette="Set2") +
+  scale_fill_brewer(palette = "Set3") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+
+```{r}
+vec <- dose_wa_bbch%>%
+  #filter(name_ai == "Glyphosate") %>%
+  filter(name_crop_earthstat != "other") %>%
+  filter(name_crop_earthstat != "pea") %>%
+  filter(name_crop_earthstat != "bean") %>%
+  group_by(name_crop_earthstat, name_cropgroup.y) %>%
+  summarize(m = mean(`dose_wa_[kg/ha]`, na.rm = TRUE)) %>%
+  ungroup() %>%
+  group_by(name_cropgroup.y) %>%
+  arrange(desc(m), .by_group = TRUE) %>%
+  pull(name_crop_earthstat)
+vec
+
+dose_wa_bbch %>%
+  #filter(name_ai == "Glyphosate") %>%
+  #filter(name_cropgroup.y == "Cereals") %>%
+  ggplot(aes(x = factor(name_crop_earthstat, levels = vec), y = `dose_wa_[kg/ha]`)) +
+  #ggplot(aes(x = name_crop_earthstat, y = `dose_wa_[kg/ha]`)) +
+  #geom_jitter(alpha = 0.3, width = 0.01, aes(color = name_region)) +
+  geom_boxplot(#size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 1,
+               aes(fill = cropstage),
+               alpha = 0.7, position = "identity") +
+  
+  theme_minimal() +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          labels = trans_format("log10", math_format(10^.x))) +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  #facet_wrap(~name_cropgroup.y, ncol = 11) +
+  scale_color_brewer(palette="Set2") +
+  scale_fill_brewer(palette = "Set3") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+
+```{r}
+vec <- dose_wa_app%>%
+  #filter(name_ai == "Glyphosate") %>%
+  filter(name_crop_earthstat != "other") %>%
+  filter(name_crop_earthstat != "pea") %>%
+  filter(name_crop_earthstat != "bean") %>%
+  group_by(name_crop_earthstat, name_cropgroup.y) %>%
+  summarize(m = mean(`dose_wa_[kg/ha]`, na.rm = TRUE)) %>%
+  ungroup() %>%
+  group_by(name_cropgroup.y) %>%
+  arrange(desc(m), .by_group = TRUE) %>%
+  pull(name_crop_earthstat)
+vec
+
+dose_wa_app %>%
+  #filter(name_ai == "Glyphosate") %>%
+  #filter(name_cropgroup.y == "Cereals") %>%
+  ggplot(aes(x = factor(name_crop_earthstat, levels = vec), y = `dose_wa_[kg/ha]`)) +
+  #ggplot(aes(x = name_crop_earthstat, y = `dose_wa_[kg/ha]`)) +
+  #geom_jitter(alpha = 0.3, width = 0.01, aes(color = name_region)) +
+  geom_boxplot(#size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 1,
+               aes(fill = app),
+               alpha = 0.7, position = "identity") +
+  
+  theme_minimal() +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          labels = trans_format("log10", math_format(10^.x))) +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  #facet_wrap(~name_cropgroup.y, ncol = 11) +
+  scale_color_brewer(palette="Set2") +
+  scale_fill_brewer(palette = "Set3") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+
+```{r}
+write.csv(dose_wa, "dose_wa.csv")
+write.csv(dose_wa_bbch, "dose_wa_bbch.csv")
+write.csv(dose_wa_app, "dose_wa_app.csv")
+write.csv(dose_wa_chemclass, "dose_wa_chemclass.csv")
+write.csv(chemclass_uni, "chemclass_uni.csv")
+```
+
+```{r}
+chemclass <- read_xlsx("/Users/yuyue/Documents/Research/dose regression/Copy of Classyfire_Results_Pivot pf.xlsx")
+chemclass <- chemclass %>%
+  distinct()
+dose_wa_chemclass <- dose_wa %>%
+  left_join(chemclass, by = c("casrn_chemical" = "Cas"))
+
+unique(dose_wa_chemclass$Kingdom)
+unique(dose_wa_chemclass$Superclass)
+unique(dose_wa_chemclass$Class)
+
+chemclass_uni <- dose_wa_chemclass %>%
+  distinct(name_ai, casrn_chemical, Kingdom, Superclass, Class)
+
+chemclass_na <- dose_wa_chemclass %>%
+  filter(is.na(Class)) %>%
+  distinct(name_ai, casrn_chemical, Kingdom, Superclass)
+```
+
+```{r}
+vec <- dose_wa_chemclass%>%
+  filter(Class == "Benzene and substituted derivatives") %>%
+  filter(name_crop_earthstat != "other") %>%
+  filter(name_crop_earthstat != "pea") %>%
+  filter(name_crop_earthstat != "bean") %>%
+  group_by(name_crop_earthstat, name_cropgroup.y) %>%
+  summarize(m = mean(`dose_wa_[kg/ha]`, na.rm = TRUE)) %>%
+  ungroup() %>%
+  group_by(name_cropgroup.y) %>%
+  arrange(desc(m), .by_group = TRUE) %>%
+  pull(name_crop_earthstat)
+vec
+
+dose_wa_chemclass %>%
+  filter(Class == "Benzene and substituted derivatives") %>%
+  #filter(name_cropgroup.y == "Cereals") %>%
+  ggplot(aes(x = factor(name_crop_earthstat, levels = vec), y = `dose_wa_[kg/ha]`)) +
+  geom_jitter(alpha = 0.3, width = 0.01, aes(color = name_region)) +
+  geom_boxplot(#size = 1,
+               outlier.shape = 1,
+               outlier.color = "black",
+               outlier.size = 1,
+               aes(fill = name_cropgroup.y),
+               alpha = 0.7) +
+  
+  theme_minimal() +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          labels = trans_format("log10", math_format(10^.x))) +
+  #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+  #facet_wrap(~name_cropgroup.y, ncol = 11) +
+  scale_color_brewer(palette="Set2") +
+  scale_fill_brewer(palette = "Set3") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+
+```{r}
+comptox <- read_xls("/Users/yuyue/Downloads/CompToxChemicalsDashboard-Batch-Search_2021-10-12_11_00_28.xls")
+comptox <- comptox %>%
+  select(INPUT, IUPAC_NAME) %>%
+  filter(IUPAC_NAME != "-") %>%
+  left_join(chemclass_uni, by = c("INPUT" = "casrn_chemical"))
+write.csv(comptox, "missingchem.csv")
+```
+
+```{r}
+input_bayer_2018_c_name <- input_bayer_2018_c %>%
+  filter(casrn_chemical == "NAME")
+sum(input_bayer_2018_c_name$`applied_mass_[1000kg/yr]`)/sum(input_bayer_2018_c$`applied_mass_[1000kg/yr]`)
+```
+
+```{r}
+compendium <- read_xlsx("/Users/yuyue/Documents/Research/data gaps/compendium.xlsx", sheet = 3)
+compendium <- compendium %>%
+  mutate(chemclass = str_remove_all(activity, "acaricides|plant growth regulators|insecticides|herbicides|fungicides|	
+plant growth regulators|rodenticides|\\(|\\)"))
+write.csv(compendium, "compendium_chemclass.csv")
+```
+
+```{r}
+compendium_chemclass <- read_xlsx("/Users/yuyue/Documents/Research/dose regression/compendium_chemclass.xlsx")
+```
+
+```{r}
+compendium_chemical <- read_xlsx("/Users/yuyue/Documents/Research/dose regression/Alanwood_species group.xlsx")
+```
+
+```{r}
+dose_wa_chemicalclass <- dose_wa %>%
+  left_join(compendium_chemical, by = c("name_ai" = "Chemical_Trim"))
+```
+
+```{r}
+compendium_chemical_dup <- compendium_chemical %>%
+  group_by(Chemical, Pesticide_type) %>%
+  summarize(count = n_distinct(Group_Name), class = list(unique(Group_Name))) %>%
+  #filter(count > 1) %>%
+  mutate(class = as.character(class))
+
+write.csv(compendium_chemical_dup, "compendium_chemical_dup.csv")
+```
+
+```{r}
+dose_wa_bbch <- input_bayer_2018_c_bbchc %>%
+  group_by(name_region,name_country, name_ai, casrn_chemical, name_crop_earthstat, name_cropgroup.y, code_bbch_group) %>%
+  summarize(`dose_wa_[kg/ha]` = round(sum(`applied_mass_[1000kg/yr]`*`dose_[kg/ha]`)/sum(`applied_mass_[1000kg/yr]`),2), min = min(`dose_[kg/ha]`), max = max(`dose_[kg/ha]`), sum = sum(`applied_mass_[1000kg/yr]`))
+
+        vec <- dose_wa_bbch%>%
+            filter(name_ai == "Glyphosate") %>%
+            filter(name_crop_earthstat != "other") %>%
+            filter(name_crop_earthstat != "pea") %>%
+            filter(name_crop_earthstat != "bean") %>%
+            group_by(name_crop_earthstat, name_cropgroup.y) %>%
+            summarize(m = mean(`dose_wa_[kg/ha]`, na.rm = TRUE)) %>%
+            ungroup() %>%
+            group_by(name_cropgroup.y) %>%
+            arrange(desc(m), .by_group = TRUE) %>%
+            pull(name_crop_earthstat)
+        vec
+        
+    p1<-    dose_wa_bbch %>%
+            filter(name_ai == "Etofenprox") %>%
+            #filter(name_cropgroup.y == "Cereals") %>%
+            #ggplot(aes(x = factor(name_crop_earthstat, levels = vec), y =`dose_wa_[kg/ha]`)) +
+          ggplot(aes(x = factor(name_crop_earthstat, levels = vec))) +
+            #ggplot(aes(x = name_crop_earthstat, y = `dose_wa_[kg/ha]`)) +
+            #geom_jitter(alpha = 0.3, width = 0.01, aes(color = name_region)) +
+            geom_boxplot(#size = 1,
+              aes(y = `dose_wa_[kg/ha]`, fill = code_bbch_group),
+                outlier.shape = 1,
+                outlier.color = "black",
+                outlier.size = 1,
+                alpha = 0.7, position = "identity") +
+            theme_minimal() +
+            scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          labels = trans_format("log10", math_format(10^.x))) +
+            #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+            #facet_wrap(~name_cropgroup.y, ncol = 11) +
+            scale_color_brewer(palette="Paired") +
+            scale_fill_brewer(palette = "Paired") +
+            theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+dose_wa_bbch_glo <- dose_wa_bbch %>%
+  group_by(name_ai, casrn_chemical, name_crop_earthstat, name_cropgroup.y, code_bbch_group) %>%
+            summarize(sum = sum(sum))
+    
+    p2 <- dose_wa_bbch_glo %>%
+            filter(name_ai == "Etofenprox") %>%
+            #group_by(name_ai, casrn_chemical, name_crop_earthstat, name_cropgroup.y, code_bbch_group) %>%
+            #summarize(sum = sum(sum)) %>%
+            #filter(name_cropgroup.y == "Cereals") %>%
+            #ggplot(aes(x = factor(name_crop_earthstat, levels = vec), y =`dose_wa_[kg/ha]`)) +
+          ggplot(aes(x = factor(name_crop_earthstat, levels = vec))) +
+            #ggplot(aes(x = name_crop_earthstat, y = `dose_wa_[kg/ha]`)) +
+            #geom_jitter(alpha = 0.3, width = 0.01, aes(color = name_region)) +
+            geom_bar(aes(fill = code_bbch_group, y = sum), position = "stack", alpha = 0.7, colour = "black", stat = "identity") +
+            theme_minimal() +
+            #scale_y_continuous(trans= scales::pseudo_log_trans(sigma = 10^-3, base = 10)) +
+            #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          #labels = trans_format("log10", math_format(10^.x))) +
+            #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+            #facet_wrap(~name_cropgroup.y, ncol = 11) +
+            scale_color_brewer(palette="Paired") +
+            scale_fill_brewer(palette = "Paired") +
+            theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+p2
+
+legend_b <- get_legend(
+  p1 )
+
+legend_b
+
+
+p2 <- p2+rremove("legend")
+p1 <- p1+rremove("legend")
+pcol <- plot_grid(p2, NULL, p1, align = "hv", ncol = 1, rel_heights = c(1,-0.4,2))
+plot_grid(pcol, NULL, legend_b, nrow = 1, rel_widths = c(3, 0, 0.6))
+```
+
+```{r}
+p3 <-    dose_wa_bbch %>%
+            filter(name_ai == "Glyphosate") %>%
+            #filter(name_cropgroup.y == "Cereals") %>%
+            #ggplot(aes(x = factor(name_crop_earthstat, levels = vec), y =`dose_wa_[kg/ha]`)) +
+          ggplot(aes(x = factor(name_crop_earthstat, levels = vec))) +
+            #ggplot(aes(x = name_crop_earthstat, y = `dose_wa_[kg/ha]`)) +
+            #geom_jitter(alpha = 0.3, width = 0.01, aes(color = name_region)) +
+            geom_point(#size = 1,
+              aes(y = `dose_wa_[kg/ha]`, fill = code_bbch_group),
+                #outlier.shape = 1,
+                #outlier.color = "black",
+                #outlier.size = 1,
+                alpha = 0.7, position = "identity",shape = 21) +
+            theme_minimal() +
+            scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                          labels = trans_format("log10", math_format(10^.x))) +
+            #geom_smooth(method=lm, formula = formula, se=FALSE, fullrange=TRUE) +
+            #facet_wrap(~name_cropgroup.y, ncol = 11) +
+            scale_color_brewer(palette="Set2") +
+            scale_fill_brewer(palette = "Set3") +
+            theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  
+    p3
+    
+    ggMarginal(p3, type = "histogram", groupColour = TRUE, groupFill = TRUE, margins = "x")
+    
+dose_wa_bbch_gly <- dose_wa_bbch %>%
+       filter(name_ai == "Glyphosate")
+ggMarginal(data = dose_wa_bbch_gly, x = factor(name_crop_earthstat, levels = vec), y = sum, type = "histogram", groupColour = TRUE, groupFill = TRUE, margins = "x")
+```
+
+
+```{r}
+write.csv(dose_wa_bbch, "dose_wa_bbch2.csv")
+```
+
+
+spring autumn clarification in cropstage
+```{r}
+spring_cropstage_activetype <- input_bayer_2018_bbch %>%
+  filter(str_detect(name_cropstage, 'SPRING|SUMMER')) %>%
+  filter(str_detect(name_crop_bayer, 'SPRING|WINTER'))%>%
+  group_by(name_cropstage, name_crop_bayer, name_indication, name_activetype) %>%
+  summarize(count = n())
+spring_cropstage <- input_bayer_2018_bbch %>%
+  filter(str_detect(name_cropstage, 'SPRING|SUMMER')) %>%
+  filter(str_detect(name_crop_bayer, 'SPRING|WINTER'))%>%
+  group_by(name_cropstage, name_crop_bayer, name_indication) %>%
+  summarize(count = n())
+
+autumn_cropstage_activetype <- input_bayer_2018_bbch %>%
+  filter(str_detect(name_cropstage, 'AUTUMN')) %>%
+  filter(str_detect(name_crop_bayer, 'SPRING|WINTER'))%>%
+  group_by(name_cropstage, name_crop_bayer, name_indication, name_activetype) %>%
+  summarize(count = n())
+autumn_cropstage <- input_bayer_2018_bbch %>%
+  filter(str_detect(name_cropstage, 'AUTUMN')) %>%
+  filter(str_detect(name_crop_bayer, 'SPRING|WINTER'))%>%
+  group_by(name_cropstage, name_crop_bayer, name_indication) %>%
+  summarize(count = n())
+```
+```{r}
+write.csv(spring_cropstage_activetype, "spring_cropstage_activetype.csv")
+write.csv(spring_cropstage, "spring_cropstage.csv")
+write.csv(autumn_cropstage_activetype, "autumn_cropstage_activetype.csv")
+write.csv(autumn_cropstage, "autumn_cropstage.csv")
+```
+
